@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<addons>
+<addon id="repository.dragonmax" name="DragonMax Repository" version="1.9.2" provider-name="DragonMax RD">
+  <extension point="xbmc.addon.repository" name="DragonMax Repository">
+    <dir minversion="21.0.0">
+      <info compressed="false">https://acarranza420-ui.github.io/DragonMax2/addons.xml</info>
+      <checksum>https://acarranza420-ui.github.io/DragonMax2/addons.xml.md5</checksum>
+      <datadir zip="true">https://acarranza420-ui.github.io/DragonMax2/</datadir>
+    </dir>
+  </extension>
+  <extension point="xbmc.addon.metadata">
+    <summary>DragonMax V9.2 Kodi repository</summary>
+    <description>Legal DragonMax fantasy media build repository with wizard, artwork, themes, performance tuning, and recovery tools.</description>
+    <platform>all</platform>
+  </extension>
+</addon>
+
+<addon id="plugin.program.dragonmaxwizard" name="DragonMax Wizard" version="1.9.2" provider-name="DragonMax RD">
+  <requires>
+    <import addon="xbmc.python" version="3.0.0"/>
+  </requires>
+  <extension point="xbmc.python.script" library="default.py">
+    <provides>executable</provides>
+  </extension>
+  <extension point="xbmc.addon.metadata">
+    <summary>DragonMax setup wizard</summary>
+    <description>Installs and stages DragonMax V9.2 build content, artwork, menus, widgets, performance profiles, and recovery tools.</description>
+    <platform>all</platform>
+  </extension>
+</addon>
+
+</addons>
