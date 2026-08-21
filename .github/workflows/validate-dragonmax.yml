@@ -14,33 +14,87 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Validate manifests and ZIP structure
+      - name: Validate manifests, versions, URLs, and ZIP structure
         run: |
           python - <<'PY'
-          import hashlib, json, pathlib, sys, xml.etree.ElementTree as ET, zipfile
+          import hashlib, json, pathlib, sys, urllib.request, xml.etree.ElementTree as ET, zipfile
+
           root = pathlib.Path('.')
           errors = []
+          warnings = []
+
           try:
-              ET.parse(root/'addons.xml')
+              tree = ET.parse(root/'addons.xml')
+              addon_versions = {a.attrib.get('id'): a.attrib.get('version') for a in tree.getroot().findall('addon')}
           except Exception as exc:
               errors.append(f'addons.xml invalid: {exc}')
-          actual = hashlib.md5((root/'addons.xml').read_bytes()).hexdigest()
-          expected = (root/'addons.xml.md5').read_text().strip()
-          if actual != expected:
-              errors.append(f'addons.xml.md5 mismatch: {expected} != {actual}')
+              addon_versions = {}
+
+          try:
+              actual = hashlib.md5((root/'addons.xml').read_bytes()).hexdigest()
+              expected = (root/'addons.xml.md5').read_text().strip()
+              if actual != expected:
+                  errors.append(f'addons.xml.md5 mismatch: {expected} != {actual}')
+          except Exception as exc:
+              errors.append(f'checksum validation failed: {exc}')
+
+          docs = {}
           for name in ['build.json','updates.json','themes.json','realms.json']:
               try:
-                  json.loads((root/name).read_text())
+                  docs[name] = json.loads((root/name).read_text())
               except Exception as exc:
                   errors.append(f'{name} invalid: {exc}')
-          manifest = json.loads((root/'build.json').read_text())
+
+          updates = docs.get('updates.json', {})
+          repo_v = addon_versions.get('repository.dragonmax')
+          wiz_v = addon_versions.get('plugin.program.dragonmaxwizard')
+          if repo_v and updates.get('repository_version') and repo_v != updates['repository_version']:
+              errors.append(f'repository version mismatch: addons.xml={repo_v} updates.json={updates["repository_version"]}')
+          if wiz_v and updates.get('wizard_version') and wiz_v != updates['wizard_version']:
+              errors.append(f'wizard version mismatch: addons.xml={wiz_v} updates.json={updates["wizard_version"]}')
+
+          manifest = docs.get('build.json', {})
+          base_url = manifest.get('base_url', '')
           for build in manifest.get('builds', []):
-              p = root/build['zip']
+              rel = build.get('zip','')
+              p = root/rel if rel else None
+              direct_url = build.get('url') or (base_url.rstrip('/') + '/' + rel.lstrip('/') if base_url and rel else '')
+
               if build.get('ready'):
-                  if not p.exists():
-                      errors.append(f'Ready build missing: {p}')
-                  elif p.stat().st_size < int(build.get('minimum_size_mb',60))*1024*1024:
-                      errors.append(f'Ready build undersized: {p}')
+                  minimum = int(build.get('minimum_size_mb',60))*1024*1024
+                  if p and p.exists():
+                      if p.stat().st_size < minimum:
+                          errors.append(f'Ready build undersized: {p}')
+                      try:
+                          with zipfile.ZipFile(p) as z:
+                              bad = z.testzip()
+                              if bad:
+                                  errors.append(f'Corrupt member in {p}: {bad}')
+                              names = set(z.namelist())
+                              if not any('/userdata/' in '/' + n for n in names):
+                                  errors.append(f'{p} missing userdata directory')
+                              if not any('/addons/' in '/' + n for n in names):
+                                  errors.append(f'{p} missing addons directory')
+                      except Exception as exc:
+                          errors.append(f'ZIP validation failed for {p}: {exc}')
+                  elif direct_url:
+                      try:
+                          req = urllib.request.Request(direct_url, headers={'User-Agent':'DragonMax-Validator'}, method='HEAD')
+                          with urllib.request.urlopen(req, timeout=20) as r:
+                              if r.status >= 400:
+                                  errors.append(f'Build URL returned HTTP {r.status}: {direct_url}')
+                              length = r.headers.get('Content-Length')
+                              if length and int(length) < minimum:
+                                  errors.append(f'Remote build undersized: {length} bytes at {direct_url}')
+                      except Exception as exc:
+                          errors.append(f'Ready build URL unavailable: {direct_url}: {exc}')
+                  else:
+                      errors.append('Ready build has neither local payload nor direct URL')
+              else:
+                  warnings.append(f'Staged build remains gated: {build.get("name", rel)}')
+
+          for w in warnings:
+              print('WARN:', w)
           if errors:
               print('\n'.join('ERROR: '+x for x in errors))
               sys.exit(1)
