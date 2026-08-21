@@ -1,18 +1,19 @@
 {
-  "schema": 2,
+  "schema": 3,
   "repository": "DragonMax-V9-2",
   "base_url": "https://acarranza420-ui.github.io/DragonMax-V9-2/",
   "release_channel": "staging",
   "builds": [
     {
-      "name": "DragonMax V11 Release Candidate",
-      "version": "3.0.0",
-      "zip": "builds/DragonMax_V11_Build_Content-3.0.0.zip",
+      "name": "DragonMax V12 Unified",
+      "version": "4.0.0",
+      "zip": "builds/DragonMax_V12_Unified_Build_Content-4.0.0.zip",
       "minimum_size_mb": 60,
-      "target_size_mb": 70.2,
+      "target_size_mb": 72.48,
       "ready": false,
       "target_device": "Fire TV Stick 4K Max",
-      "notes": "Set ready=true only after the V11 payload is uploaded to /builds and passes repository validation."
+      "merge_policy": "V9.2 staged first; V11 overwrites all duplicate paths",
+      "notes": "Unified V9.2 + V11 release candidate. Set ready=true only after the 4.0.0 payload and repository/wizard ZIPs are uploaded and validated on GitHub Pages."
     }
   ]
 }
