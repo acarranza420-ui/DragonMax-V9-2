@@ -1,0 +1,14 @@
+{
+  "realms": [
+    {"id":"dragon_order","name":"Dragon Order","role":"default entertainment realm"},
+    {"id":"arcane_dominion","name":"Arcane Dominion","role":"fantasy and discovery"},
+    {"id":"crimson_court","name":"Crimson Court","role":"dark fantasy"},
+    {"id":"temple_guardians","name":"Temple Guardians","role":"martial arts and focus"},
+    {"id":"champion_guild","name":"Champion Guild","role":"sports, workouts and achievements"},
+    {"id":"office_consortium","name":"Office Consortium","role":"work shortcuts and productivity"}
+  ],
+  "switching": {
+    "changes": ["artwork", "accent", "sound_profile", "widget_group"],
+    "restart_required": false
+  }
+}
