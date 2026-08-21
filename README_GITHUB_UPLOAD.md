@@ -1,13 +1,23 @@
-# DragonMax GitHub Upload Rules
+# DragonMax V12 Binary Publishing Rules
 
-1. Keep repository/wizard/manifests in the repository root.
-2. Put full build payloads only in `/builds/`.
-3. For V11, upload exactly:
-   `builds/DragonMax_V11_Build_Content-3.0.0.zip`
-4. Confirm the GitHub Pages URL downloads that ZIP.
-5. Confirm its size is at least 60 MB.
-6. Run the repository validation workflow.
-7. Only after validation passes, change `ready` in `build.json` from `false` to `true`.
-8. Test from a fresh Kodi 21 installation before treating the release as stable.
+DragonMax V12 Unified uses release line **4.0.0**.
 
-Do not expose a build payload as the file users should install from Kodi's **Install from zip file** screen.
+## Required binary artifacts
+
+- `repository.dragonmax-4.0.0.zip`
+- `plugin.program.dragonmaxwizard-4.0.0.zip`
+- `DragonMax_V12_Unified_Build_Content-4.0.0.zip`
+
+## Hosting rules
+
+1. Repository/wizard/manifests remain in the repository release architecture.
+2. Full build payloads must use a stable anonymous direct-download URL accessible by Kodi without browser login, cookies, or confirmation pages.
+3. If GitHub Pages hosts the payload, use `/builds/DragonMax_V12_Unified_Build_Content-4.0.0.zip`.
+4. If external storage hosts the payload, update only the V12 manifest URL; do not expose the payload as a Kodi add-on.
+5. Verify HTTP success, ZIP integrity, and payload size before enabling the release.
+6. Confirm the V12 payload contains `userdata/` and `addons/`, including `addons/skin.auramod`.
+7. Run repository validation.
+8. Only after validation passes change `ready` in `build.json` from `false` to `true`.
+9. Test from a fresh Kodi 21 installation before treating V12 as stable.
+
+Never mark a build ready merely because a filename exists. The URL must return the actual ZIP bytes anonymously and the payload must pass validation.
