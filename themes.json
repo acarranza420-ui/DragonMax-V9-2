@@ -1,0 +1,12 @@
+{
+  "default": "dragon_order",
+  "performance_default": "balanced",
+  "themes": [
+    {"id":"dragon_order","name":"Dragon Order","accent":"fire-gold"},
+    {"id":"arcane_dominion","name":"Arcane Dominion","accent":"arcane-blue"},
+    {"id":"crimson_court","name":"Crimson Court","accent":"crimson"},
+    {"id":"temple_guardians","name":"Temple Guardians","accent":"temple-green"},
+    {"id":"champion_guild","name":"Champion Guild","accent":"champion-gold"},
+    {"id":"office_consortium","name":"Office Consortium","accent":"slate-blue"}
+  ]
+}
