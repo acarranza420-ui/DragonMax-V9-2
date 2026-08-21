@@ -1,0 +1,14 @@
+{
+  "repository_version": "1.9.3",
+  "wizard_version": "1.9.3",
+  "latest_build": "3.0.0",
+  "channel": "staging",
+  "minimum_kodi_major": 21,
+  "breaking_update": false,
+  "notes": [
+    "Corrected GitHub Pages paths.",
+    "Added transactional wizard preflight and payload validation.",
+    "Added manifest validation workflow and release checklist.",
+    "Build payload is intentionally gated until the V11 release ZIP is uploaded and validated."
+  ]
+}
