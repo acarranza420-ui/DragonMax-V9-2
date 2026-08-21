@@ -1,0 +1,48 @@
+name: Validate DragonMax Repository
+
+on:
+  push:
+    branches: [main, dragonmax-stability-rc]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate manifests and ZIP structure
+        run: |
+          python - <<'PY'
+          import hashlib, json, pathlib, sys, xml.etree.ElementTree as ET, zipfile
+          root = pathlib.Path('.')
+          errors = []
+          try:
+              ET.parse(root/'addons.xml')
+          except Exception as exc:
+              errors.append(f'addons.xml invalid: {exc}')
+          actual = hashlib.md5((root/'addons.xml').read_bytes()).hexdigest()
+          expected = (root/'addons.xml.md5').read_text().strip()
+          if actual != expected:
+              errors.append(f'addons.xml.md5 mismatch: {expected} != {actual}')
+          for name in ['build.json','updates.json','themes.json','realms.json']:
+              try:
+                  json.loads((root/name).read_text())
+              except Exception as exc:
+                  errors.append(f'{name} invalid: {exc}')
+          manifest = json.loads((root/'build.json').read_text())
+          for build in manifest.get('builds', []):
+              p = root/build['zip']
+              if build.get('ready'):
+                  if not p.exists():
+                      errors.append(f'Ready build missing: {p}')
+                  elif p.stat().st_size < int(build.get('minimum_size_mb',60))*1024*1024:
+                      errors.append(f'Ready build undersized: {p}')
+          if errors:
+              print('\n'.join('ERROR: '+x for x in errors))
+              sys.exit(1)
+          print('DragonMax repository validation passed.')
+          PY
