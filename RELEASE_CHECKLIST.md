@@ -15,6 +15,7 @@
 - [ ] Build ZIP passes an integrity test with no corrupt member.
 - [ ] Build ZIP contains `userdata/` and `addons/` after its top-level folder.
 - [ ] AuraMOD exists in the payload under `addons/skin.auramod`.
+- [ ] Dragon Voice service exists under `addons/service.dragonmax.voice` and its Python compiles.
 - [ ] Wizard preflight catches low storage before downloading.
 - [ ] Wizard refuses an unready payload.
 - [ ] Wizard extracts to a temporary directory before applying files.
@@ -34,6 +35,21 @@
 - [ ] Install is repeated at least twice from clean Kodi profiles.
 - [ ] Restart Kodi at least three times after install with consistent results.
 
+## Dragon Voice + Dragon AI gates
+
+- [ ] Dragon Voice service starts without blocking Kodi startup.
+- [ ] Voice bridge health endpoint responds locally.
+- [ ] Authenticated command requests succeed and unauthenticated requests are rejected.
+- [ ] Commands for Home, Movies, TV Shows, and Dragon Portal execute correctly.
+- [ ] All six realm-switch commands resolve correctly.
+- [ ] Maximum Speed, Balanced, and Visual Quality voice commands change the stored DragonMax mode.
+- [ ] System-health question returns a useful local response.
+- [ ] Destructive commands require confirmation and are not directly executed by the voice service.
+- [ ] Voice/AI outage does not break Kodi, Dragon Portal, playback, or remote-control operation.
+- [ ] Companion speech-to-text input can send recognized text to the Kodi bridge.
+- [ ] Manual text/remote fallback remains available for every critical action.
+- [ ] Optional external AI cannot bypass the local command allow-list or safety checks.
+
 ## Visual and experience gates
 
 - [ ] AuraMOD loads as the intended active skin without missing dependencies.
@@ -43,6 +59,7 @@
 - [ ] Fonts, icons, focus states, and selected-item visibility are consistent.
 - [ ] No placeholder-looking artwork, broken paths, stretched images, or obvious filler assets remain in the launch build.
 - [ ] Dragon Portal visually matches the home experience rather than feeling like a separate utility screen.
+- [ ] Dragon Voice confirmations are brief and do not interrupt playback unnecessarily.
 
 ## Packaging target
 
