@@ -9,11 +9,27 @@
       "version": "4.0.0",
       "zip": "builds/DragonMax_V12_Unified_Build_Content-4.0.0.zip",
       "minimum_size_mb": 60,
-      "target_size_mb": 72.48,
+      "ideal_size_mb": 280,
       "ready": false,
       "target_device": "Fire TV Stick 4K Max",
-      "merge_policy": "V9.2 staged first; V11 overwrites all duplicate paths",
-      "notes": "Unified V9.2 + V11 release candidate. Set ready=true only after the 4.0.0 payload and repository/wizard ZIPs are uploaded and validated on GitHub Pages."
+      "merge_policy": "V9.2 baseline with V11/V12 overlay; newer layer wins duplicate paths",
+      "capabilities": [
+        "AuraMOD home",
+        "Dragon Portal",
+        "Dragon Voice",
+        "local Dragon AI intent engine",
+        "authenticated LAN voice bridge",
+        "safe confirmation layer",
+        "remote-control fallback"
+      ],
+      "release_priority": [
+        "quality",
+        "stability",
+        "smooth use",
+        "visual consistency",
+        "package size"
+      ],
+      "notes": "280 MiB is an ideal packaging target, not a launch gate. Keep ready=false until the public payload, repository/wizard flow, voice module, clean-install tests, and Fire TV stability checks pass."
     }
   ]
 }
