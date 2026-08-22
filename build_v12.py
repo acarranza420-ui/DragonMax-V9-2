@@ -6,9 +6,8 @@ ROOT = Path(__file__).resolve().parent
 OUT = ROOT / 'public'
 STAGE = ROOT / '.v12_stage' / 'DragonMax_V12_Unified_Build_Content'
 BUILD = OUT / 'builds' / 'DragonMax_V12_Unified_Build_Content-4.0.0.zip'
-TARGET_MIN = 260 * 1024 * 1024
-TARGET_IDEAL = 275 * 1024 * 1024
-TARGET_MAX = 285 * 1024 * 1024
+IDEAL_SIZE = 280 * 1024 * 1024
+SOFT_MAX = 320 * 1024 * 1024
 
 REALMS = [
     ('dragon_order','Dragon Order',(160,55,20)),
@@ -35,21 +34,18 @@ def fetch(url, dest):
 
 
 def png_bytes(w,h,tint,seed,detail='normal'):
-    rng = random.Random(seed)
     raw = bytearray()
     tr,tg,tb = tint
-    # Realm-tinted procedural artwork. Normal mode uses coherent block texture
-    # so core artwork remains compact; rich mode adds more detail for texture plates.
-    block = 8 if detail == 'normal' else 2
+    block = 8 if detail == 'normal' else 4
     for y in range(h):
         raw.append(0)
         by = y // block
         for x in range(w):
             bx = x // block
             local = random.Random(seed + bx*131 + by*977)
-            noise = local.randrange(0, 96 if detail == 'rich' else 42)
-            wavev = int(24 * math.sin((x + seed % 97) / 47.0) + 18 * math.cos((y + seed % 53) / 61.0))
-            fade = int(34 * y / max(1,h-1))
+            noise = local.randrange(0, 72 if detail == 'rich' else 36)
+            wavev = int(22 * math.sin((x + seed % 97) / 47.0) + 16 * math.cos((y + seed % 53) / 61.0))
+            fade = int(30 * y / max(1,h-1))
             r = max(0,min(255,tr + noise + wavev + fade))
             g = max(0,min(255,tg + noise//2 + wavev//2 + fade//2))
             b = max(0,min(255,tb + noise//3 - wavev//3))
@@ -156,7 +152,7 @@ def generate_userdata():
 
 
 def manifest():
-    data={'name':'DragonMax V12 Unified','version':'4.0.0','merge_policy':'V9.2 baseline + V11/V12 overlay','target_device':'Fire TV Stick 4K Max','realms':[n for s,n,t in REALMS]}
+    data={'name':'DragonMax V12 Unified','version':'4.0.0','merge_policy':'V9.2 baseline + V11/V12 overlay','target_device':'Fire TV Stick 4K Max','realms':[n for s,n,t in REALMS], 'release_priority':['quality','stability','smooth_use','visual_consistency','package_size']}
     (STAGE/'dragonmax_manifest.json').write_text(json.dumps(data,indent=2),encoding='utf-8')
 
 
@@ -168,47 +164,40 @@ def write_zip():
             if p.is_file(): z.write(p,Path(STAGE.name)/p.relative_to(STAGE))
 
 
-def make_zip():
-    write_zip()
-    base_mb = BUILD.stat().st_size/1024/1024
-    print(f'Base V12 payload size: {base_mb:.2f} MiB')
-    if BUILD.stat().st_size > TARGET_MAX:
-        raise RuntimeError(f'Base payload already exceeds target envelope: {base_mb:.2f} MiB')
+def validate_quality():
+    required = [
+        STAGE/'addons'/'skin.auramod',
+        STAGE/'userdata',
+        STAGE/'dragonmax'/'config'/'menus.json',
+        STAGE/'dragonmax'/'config'/'widgets.json',
+        STAGE/'dragonmax'/'config'/'realms.json',
+        STAGE/'dragonmax'/'config'/'performance.json',
+        STAGE/'startup'/'dragonmax_static_splash.png',
+    ]
+    missing=[str(p.relative_to(STAGE)) for p in required if not p.exists()]
+    if missing:
+        raise RuntimeError('Missing required V12 content: '+', '.join(missing))
+    for name in ['menus.json','widgets.json','realms.json','performance.json']:
+        json.loads((STAGE/'dragonmax'/'config'/name).read_text(encoding='utf-8'))
 
-    tex=STAGE/'artwork'/'texture_plates'; tex.mkdir(parents=True,exist_ok=True)
-    i=1
-    while BUILD.stat().st_size < TARGET_IDEAL and i <= 120:
-        slug,name,tint=REALMS[(i-1)%6]
-        write_png(tex/f'{slug}_texture_{i:03d}.png',1024,576,tint,80000+i,detail='rich')
-        if i % 2 == 0:
-            write_zip()
-            size = BUILD.stat().st_size
-            print(f'Texture pass {i}: {size/1024/1024:.2f} MiB')
-            if size >= TARGET_IDEAL:
-                break
-        i+=1
+
+def make_zip():
+    validate_quality()
     write_zip()
-    size = BUILD.stat().st_size
+    size=BUILD.stat().st_size
     mb=size/1024/1024
-    print(f'Final V12 payload size: {mb:.2f} MiB')
-    if size < TARGET_MIN:
-        raise RuntimeError(f'Payload below minimum target: {mb:.2f} MiB')
-    if size > TARGET_MAX:
-        # Remove newest texture plates until we are back inside the envelope.
-        plates=sorted(tex.glob('*.png'), reverse=True)
-        while size > TARGET_MAX and plates:
-            plates.pop(0).unlink()
-            write_zip(); size=BUILD.stat().st_size
-        mb=size/1024/1024
-        print(f'Trimmed V12 payload size: {mb:.2f} MiB')
-        if size > TARGET_MAX or size < TARGET_MIN:
-            raise RuntimeError(f'Unable to land inside 260-285 MiB envelope: {mb:.2f} MiB')
+    print(f'V12 payload size: {mb:.2f} MiB')
+    if size < IDEAL_SIZE:
+        print(f'INFO package is below the ~280 MiB ideal by {(IDEAL_SIZE-size)/1024/1024:.2f} MiB; accepted because quality gates take priority.')
+    elif size > SOFT_MAX:
+        print(f'WARN package is above the 320 MiB soft ceiling at {mb:.2f} MiB; review before launch for Fire TV storage/performance impact.')
     with zipfile.ZipFile(BUILD) as z:
         bad=z.testzip()
         if bad: raise RuntimeError('Corrupt ZIP member: '+bad)
         names=z.namelist()
         if not any('/userdata/' in '/'+n for n in names): raise RuntimeError('userdata missing')
         if not any('/addons/skin.auramod/' in '/'+n for n in names): raise RuntimeError('AuraMOD missing')
+        if not any('/dragonmax/config/' in '/'+n for n in names): raise RuntimeError('DragonMax config missing')
 
 
 def publish_repo_files():
