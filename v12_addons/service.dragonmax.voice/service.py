@@ -11,6 +11,9 @@ import xbmcaddon
 import xbmcgui
 import xbmcvfs
 
+from dragon_memory import DragonMemory
+from self_repair import SelfRepairManager
+
 ADDON = xbmcaddon.Addon()
 ADDON_ID = ADDON.getAddonInfo('id')
 PROFILE = xbmcvfs.translatePath(ADDON.getAddonInfo('profile'))
@@ -58,6 +61,11 @@ def get_token():
     return token
 
 
+ensure_profile()
+MEMORY = DragonMemory(PROFILE)
+REPAIR = SelfRepairManager(PROFILE, STATE_FILE)
+
+
 def load_state():
     try:
         return json.loads(read_text(STATE_FILE, '{}') or '{}')
@@ -67,6 +75,7 @@ def load_state():
 
 def save_state(state):
     write_text(STATE_FILE, json.dumps(state, indent=2))
+    REPAIR.mark_last_good_state(state)
 
 
 def notify(msg):
@@ -84,6 +93,7 @@ def switch_realm(realm_name):
     state = load_state()
     state['realm'] = key
     save_state(state)
+    MEMORY.remember('preferred realm', realm_name.title(), source='observed_action')
     notify('Realm: ' + realm_name.title())
     return True, 'Switched to ' + realm_name.title() + '.'
 
@@ -101,6 +111,7 @@ def set_performance(mode):
     state = load_state()
     state['performance_mode'] = key
     save_state(state)
+    MEMORY.remember('preferred performance mode', mode.title(), source='observed_action')
     notify('Performance: ' + mode.title())
     return True, 'Performance mode set to ' + mode.title() + '.'
 
@@ -117,12 +128,34 @@ def health_summary():
     msg = f'Realm {realm}. Performance {perf}.'
     if free:
         msg += f' About {free} MB free.'
+    faults = REPAIR.diagnose()
+    if faults:
+        msg += ' I also detected ' + ', '.join(faults) + '.'
+    else:
+        msg += ' DragonMax core state looks healthy.'
     return True, msg
 
 
 def resolve_intent(text):
     t = re.sub(r'\s+', ' ', text.strip().lower())
     t = re.sub(r'^(hey\s+)?dragon[,:]?\s*', '', t)
+
+    if t.startswith('remember that '):
+        body = t[len('remember that '):].strip()
+        if ' is ' in body:
+            key, value = body.split(' is ', 1)
+            return {'name': 'remember', 'arg': {'key': key.strip(), 'value': value.strip()}}
+        return {'name': 'remember_note', 'arg': body}
+    if t.startswith('remember '):
+        return {'name': 'remember_note', 'arg': t[len('remember '):].strip()}
+    if t.startswith('forget '):
+        return {'name': 'forget', 'arg': t[len('forget '):].strip()}
+    if 'what do you remember' in t or t == 'memory':
+        return {'name': 'recall_all'}
+    if 'repair yourself' in t or 'self repair' in t or 'fix yourself' in t:
+        return {'name': 'self_repair'}
+    if 'recent repairs' in t or 'repair history' in t:
+        return {'name': 'repair_history'}
 
     for realm in REALMS:
         if ('switch' in t or 'change' in t or 'realm' in t) and realm in t:
@@ -174,6 +207,28 @@ def execute_intent(intent, confirmed=False):
         builtin(arg); ok, msg = True, 'Done.'
     elif name == 'health':
         ok, msg = health_summary()
+    elif name == 'remember':
+        ok = MEMORY.remember(arg.get('key', ''), arg.get('value', ''), source='explicit')
+        msg = 'Remembered.' if ok else 'I could not store that memory.'
+    elif name == 'remember_note':
+        note = str(arg).strip()
+        ok = MEMORY.remember('note ' + str(len(MEMORY.recall()) + 1), note, source='explicit') if note else False
+        msg = 'Remembered that note.' if ok else 'There was nothing useful to remember.'
+    elif name == 'forget':
+        ok = MEMORY.forget(arg)
+        msg = 'Forgot ' + arg + '.' if ok else 'I did not have a memory stored under ' + arg + '.'
+    elif name == 'recall_all':
+        memories = MEMORY.recall()
+        ok = True
+        msg = 'I remember ' + '; '.join(f'{k}: {v}' for k, v in list(memories.items())[:8]) if memories else 'I do not have any saved preferences yet.'
+    elif name == 'self_repair':
+        results = REPAIR.auto_repair_known_faults()
+        ok = all(r.get('ok') for r in results) if results else True
+        msg = 'No repair was needed.' if not results else ' '.join(r.get('message', '') for r in results)
+    elif name == 'repair_history':
+        repairs = REPAIR.recent_repairs(5)
+        ok = True
+        msg = 'No repairs recorded.' if not repairs else 'Recent repairs: ' + '; '.join(f"{r.get('fault')}: {r.get('action')}" for r in repairs)
     elif name == 'maintenance_cache':
         builtin('ActivateWindow(Programs,plugin.program.dragonmaxwizard,return)')
         ok, msg = True, 'Opened Dragon Portal maintenance. Cache cleaning remains confirmation-based.'
@@ -190,13 +245,14 @@ def execute_intent(intent, confirmed=False):
 def handle_command(text, confirmed=False):
     intent = resolve_intent(text)
     result = execute_intent(intent, confirmed=confirmed)
+    MEMORY.record_turn(text, intent.get('name', 'unknown'), result.get('message', ''), result.get('ok', False))
     if result.get('message'):
         notify(result['message'])
     return result
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'DragonVoice/1.0'
+    server_version = 'DragonVoice/1.1'
 
     def _json(self, code, payload):
         body = json.dumps(payload).encode('utf-8')
@@ -213,7 +269,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/health':
             ok, msg = health_summary()
-            return self._json(200, {'ok': ok, 'message': msg})
+            return self._json(200, {'ok': ok, 'message': msg, 'faults': REPAIR.diagnose()})
+        if self.path == '/memory':
+            if not self._authorized():
+                return self._json(401, {'ok': False, 'message': 'Invalid Dragon token.'})
+            return self._json(200, {'ok': True, 'preferences': MEMORY.recall(), 'recent_context': MEMORY.recent_context(8)})
+        if self.path == '/repairs':
+            if not self._authorized():
+                return self._json(401, {'ok': False, 'message': 'Invalid Dragon token.'})
+            return self._json(200, {'ok': True, 'repairs': REPAIR.recent_repairs(20)})
         if self.path == '/pair':
             ip = self.client_address[0]
             if ip in {'127.0.0.1', '::1'}:
@@ -230,9 +294,10 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return self._json(400, {'ok': False, 'message': 'Invalid JSON.'})
         if self.path == '/command':
-            text = str(data.get('text', ''))
-            confirmed = bool(data.get('confirmed', False))
-            return self._json(200, handle_command(text, confirmed))
+            return self._json(200, handle_command(str(data.get('text', '')), bool(data.get('confirmed', False))))
+        if self.path == '/repair':
+            results = REPAIR.auto_repair_known_faults()
+            return self._json(200, {'ok': all(r.get('ok') for r in results) if results else True, 'results': results})
         return self._json(404, {'ok': False})
 
     def log_message(self, fmt, *args):
@@ -250,8 +315,9 @@ def run_server():
 def main():
     ensure_profile()
     get_token()
+    REPAIR.auto_repair_known_faults()
     server = run_server()
-    notify('Dragon Voice bridge ready')
+    notify('Dragon Voice memory and self-repair ready')
     monitor = xbmc.Monitor()
     while not monitor.abortRequested():
         if monitor.waitForAbort(1):
