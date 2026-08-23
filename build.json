@@ -1,7 +1,7 @@
 {
   "schema": 3,
   "repository": "DragonMax-V9-2",
-  "base_url": "https://acarranza420-ui.github.io/DragonMax-V9-2/",
+  "base_url": "https://dragonmax-v12-release.onrender.com/",
   "release_channel": "staging",
   "builds": [
     {
@@ -10,6 +10,7 @@
       "zip": "builds/DragonMax_V12_Unified_Build_Content-4.0.0.zip",
       "minimum_size_mb": 60,
       "ideal_size_mb": 280,
+      "last_built_size_mb": 94.65,
       "ready": false,
       "target_device": "Fire TV Stick 4K Max",
       "merge_policy": "V9.2 baseline with V11/V12 overlay; newer layer wins duplicate paths",
@@ -18,6 +19,8 @@
         "Dragon Portal",
         "Dragon Voice",
         "local Dragon AI intent engine",
+        "persistent Dragon AI memory",
+        "conservative self-repair",
         "authenticated LAN voice bridge",
         "safe confirmation layer",
         "remote-control fallback"
@@ -29,7 +32,7 @@
         "visual consistency",
         "package size"
       ],
-      "notes": "280 MiB is an ideal packaging target, not a launch gate. Keep ready=false until the public payload, repository/wizard flow, voice module, clean-install tests, and Fire TV stability checks pass."
+      "notes": "Render staging host is now canonical for the V12 payload. 280 MiB is an ideal packaging target, not a launch gate. Keep ready=false until anonymous payload access, repository/wizard flow, clean-install tests, and Fire TV stability checks pass."
     }
   ]
 }
