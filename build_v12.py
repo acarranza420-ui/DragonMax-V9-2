@@ -34,7 +34,6 @@ def fetch(url, dest):
 
 
 def block_noise(seed, bx, by, limit):
-    # Fast deterministic integer hash. Avoids constructing Random() for every pixel.
     n = (seed * 2654435761 + bx * 2246822519 + by * 3266489917) & 0xffffffff
     n ^= n >> 13
     n = (n * 1274126177) & 0xffffffff
@@ -43,18 +42,15 @@ def block_noise(seed, bx, by, limit):
 
 
 def png_bytes(w,h,tint,seed,detail='normal'):
-    raw = bytearray()
-    tr,tg,tb = tint
+    raw = bytearray(); tr,tg,tb = tint
     block = 8 if detail == 'normal' else 4
     limit = 36 if detail == 'normal' else 72
     blocks_x = (w + block - 1) // block
     for y in range(h):
-        raw.append(0)
-        by = y // block
+        raw.append(0); by = y // block
         row_noise = [block_noise(seed, bx, by, limit) for bx in range(blocks_x)]
         for x in range(w):
-            bx = x // block
-            noise = row_noise[bx]
+            bx = x // block; noise = row_noise[bx]
             wavev = int(22 * math.sin((x + seed % 97) / 47.0) + 16 * math.cos((y + seed % 53) / 61.0))
             fade = int(30 * y / max(1,h-1))
             r = max(0,min(255,tr + noise + wavev + fade))
@@ -87,61 +83,42 @@ def write_wav(path,dur,freqs,vol=.25,sr=44100):
 
 def copy_legacy():
     legacy = ROOT/'DragonMax_V9_2_Build_Content-1.9.2.zip'
-    if not legacy.exists():
-        return
-    tmp = STAGE.parent/'legacy'
-    tmp.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(legacy) as z:
-        z.extractall(tmp)
+    if not legacy.exists(): return
+    tmp = STAGE.parent/'legacy'; tmp.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(legacy) as z: z.extractall(tmp)
     for p in tmp.rglob('*'):
-        if not p.is_file():
-            continue
-        rel = p.relative_to(tmp)
-        dst = STAGE/rel
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        if not dst.exists():
-            shutil.copy2(p,dst)
+        if not p.is_file(): continue
+        rel = p.relative_to(tmp); dst = STAGE/rel; dst.parent.mkdir(parents=True, exist_ok=True)
+        if not dst.exists(): shutil.copy2(p,dst)
 
 
 def install_auramod():
     arc = STAGE.parent/'auramod.zip'
     fetch('https://codeload.github.com/jojobrogess/skin.auramod/zip/refs/heads/Matrix', arc)
     tmp = STAGE.parent/'auramod_extract'
-    with zipfile.ZipFile(arc) as z:
-        z.extractall(tmp)
+    with zipfile.ZipFile(arc) as z: z.extractall(tmp)
     roots=[p for p in tmp.iterdir() if p.is_dir()]
-    if not roots:
-        raise RuntimeError('AuraMOD archive extracted without a root folder')
-    dst=STAGE/'addons'/'skin.auramod'
-    shutil.rmtree(dst,ignore_errors=True)
-    shutil.copytree(roots[0],dst)
+    if not roots: raise RuntimeError('AuraMOD archive extracted without a root folder')
+    dst=STAGE/'addons'/'skin.auramod'; shutil.rmtree(dst,ignore_errors=True); shutil.copytree(roots[0],dst)
 
 
 def install_dragonmax_addons():
     src = ROOT/'v12_addons'
-    if not src.exists():
-        raise RuntimeError('v12_addons source directory missing')
+    if not src.exists(): raise RuntimeError('v12_addons source directory missing')
     for addon in src.iterdir():
         if addon.is_dir():
             dst = STAGE/'addons'/addon.name
-            shutil.rmtree(dst, ignore_errors=True)
-            shutil.copytree(addon, dst)
+            shutil.rmtree(dst, ignore_errors=True); shutil.copytree(addon, dst)
 
 
 def generate_media():
-    art=STAGE/'artwork'; audio=STAGE/'audio'; startup=STAGE/'startup'
-    idx=0
+    art=STAGE/'artwork'; audio=STAGE/'audio'; startup=STAGE/'startup'; idx=0
     for slug,name,tint in REALMS:
-        for i in range(8):
-            idx+=1; write_png(art/'wallpapers'/slug/f'{slug}_{i+1:02d}.png',1280,720,tint,10000+idx)
-        for i in range(3):
-            idx+=1; write_png(art/'hero_banners'/slug/f'{slug}_hero_{i+1:02d}.png',1280,480,tint,20000+idx)
+        for i in range(8): idx+=1; write_png(art/'wallpapers'/slug/f'{slug}_{i+1:02d}.png',1280,720,tint,10000+idx)
+        for i in range(3): idx+=1; write_png(art/'hero_banners'/slug/f'{slug}_hero_{i+1:02d}.png',1280,480,tint,20000+idx)
         write_png(art/'realm_crests'/f'{slug}_crest.png',512,512,tint,30000+idx)
-        for i,level in enumerate(['novice','adept','master','champion','legend']):
-            write_png(art/'achievement_badges'/slug/f'{slug}_{level}.png',320,320,tint,40000+idx*10+i)
-    for i in range(10):
-        slug,name,tint=REALMS[i%6]
-        write_png(art/'loading_screens'/f'loading_{i+1:02d}.png',1280,720,tint,50000+i)
+        for i,level in enumerate(['novice','adept','master','champion','legend']): write_png(art/'achievement_badges'/slug/f'{slug}_{level}.png',320,320,tint,40000+idx*10+i)
+    for i in range(10): slug,name,tint=REALMS[i%6]; write_png(art/'loading_screens'/f'loading_{i+1:02d}.png',1280,720,tint,50000+i)
     for i,(slug,name,tint) in enumerate(REALMS):
         write_png(art/'portal_graphics'/f'{slug}_portal.png',1024,576,tint,60000+i)
         write_png(art/'wizard_graphics'/f'{slug}_wizard.png',1024,576,tint,61000+i)
@@ -149,45 +126,26 @@ def generate_media():
     write_wav(audio/'startup_theme.wav',8.0,(55,110,165,220),.26)
     write_wav(audio/'portal_open.wav',2.0,(140,280,560),.22)
     write_wav(audio/'achievement.wav',1.4,(523,659,784,1046),.20)
-    write_wav(audio/'ui_click.wav',.16,(900,1300),.17)
-    write_wav(audio/'ui_back.wav',.22,(420,260),.17)
-    write_wav(audio/'ui_select.wav',.30,(660,880,1320),.17)
-    write_wav(audio/'error.wav',.45,(180,120),.18)
-    for i,(slug,name,tint) in enumerate(REALMS):
-        write_wav(audio/f'realm_change_{slug}.wav',1.0,(140+i*20,280+i*25,560+i*30),.18)
+    write_wav(audio/'ui_click.wav',.16,(900,1300),.17); write_wav(audio/'ui_back.wav',.22,(420,260),.17); write_wav(audio/'ui_select.wav',.30,(660,880,1320),.17); write_wav(audio/'error.wav',.45,(180,120),.18)
+    for i,(slug,name,tint) in enumerate(REALMS): write_wav(audio/f'realm_change_{slug}.wav',1.0,(140+i*20,280+i*25,560+i*30),.18)
 
 
 def generate_userdata():
     u=STAGE/'userdata'; cfg=STAGE/'dragonmax'/'config'
-    (u/'addon_data'/'skin.auramod').mkdir(parents=True,exist_ok=True)
-    (u/'addon_data'/'script.autowidget').mkdir(parents=True,exist_ok=True)
-    (u/'addon_data'/'plugin.video.themoviedb.helper').mkdir(parents=True,exist_ok=True)
-    (u/'addon_data'/'service.dragonmax.voice').mkdir(parents=True,exist_ok=True)
-    (u/'keymaps').mkdir(parents=True,exist_ok=True)
-    cfg.mkdir(parents=True,exist_ok=True)
-    menus={'layout':'netflix_first','home':['Dragon Portal','Continue Watching','Movies','TV Shows','Anime Universe','Martial Arts','Champion Guild','Office Consortium','Settings'],'portal':['Dragon Voice','Switch Realm','Resume Last Played','Audio Profile','Performance Mode','Maintenance','Backups','Updates','System Health','Admin']}
+    (u/'addon_data'/'skin.auramod').mkdir(parents=True,exist_ok=True); (u/'addon_data'/'script.autowidget').mkdir(parents=True,exist_ok=True); (u/'addon_data'/'plugin.video.themoviedb.helper').mkdir(parents=True,exist_ok=True); (u/'addon_data'/'service.dragonmax.voice').mkdir(parents=True,exist_ok=True); (u/'keymaps').mkdir(parents=True,exist_ok=True); cfg.mkdir(parents=True,exist_ok=True)
+    menus={'layout':'netflix_first','home':['Dragon Portal','Continue Watching','Movies','TV Shows','Anime Universe','Martial Arts','Champion Guild','Office Consortium','Settings'],'portal':['Dragon Voice','Memory','Self Repair','Switch Realm','Resume Last Played','Audio Profile','Performance Mode','Maintenance','Backups','Updates','System Health','Admin']}
     widgets={'max_home_widgets':6,'refresh_hours':6,'rows':['Continue Watching','Trending Movies','Trending TV','Anime Universe','Martial Arts','Favorites']}
     realms={'realms':[{'id':s,'name':n} for s,n,t in REALMS]}
     perf={'default':'balanced','profiles':{'maximum_speed':{'widget_limit':4,'animated_backgrounds':False},'balanced':{'widget_limit':6,'animated_backgrounds':False},'visual_quality':{'widget_limit':6,'animated_backgrounds':True}}}
-    voice={'enabled':True,'bridge_port':8765,'wake_phrase':'Dragon','external_ai_enabled':False,'destructive_confirmation_required':True,'manual_fallback':True}
-    for p,data in [
-        (cfg/'menus.json',menus),(cfg/'widgets.json',widgets),(cfg/'realms.json',realms),(cfg/'performance.json',perf),(cfg/'voice.json',voice),
-        (u/'addon_data'/'skin.auramod'/'dragonmax_skin_base.json',{'theme':'Dragon Order','portal_enabled':True,'voice_enabled':True}),
-        (u/'addon_data'/'script.autowidget'/'dragonmax_groups.json',widgets)
-    ]:
-        p.write_text(json.dumps(data,indent=2),encoding='utf-8')
+    voice={'enabled':True,'bridge_port':8765,'wake_phrase':'Dragon','external_ai_enabled':False,'destructive_confirmation_required':True,'manual_fallback':True,'memory_enabled':True,'self_repair_enabled':True,'self_repair_policy':'allowlisted_reversible_only'}
+    for p,data in [(cfg/'menus.json',menus),(cfg/'widgets.json',widgets),(cfg/'realms.json',realms),(cfg/'performance.json',perf),(cfg/'voice.json',voice),(u/'addon_data'/'skin.auramod'/'dragonmax_skin_base.json',{'theme':'Dragon Order','portal_enabled':True,'voice_enabled':True}),(u/'addon_data'/'script.autowidget'/'dragonmax_groups.json',widgets)]: p.write_text(json.dumps(data,indent=2),encoding='utf-8')
     (u/'advancedsettings.xml').write_text('<advancedsettings><cache><buffermode>1</buffermode><memorysize>139460608</memorysize><readfactor>4.0</readfactor></cache></advancedsettings>',encoding='utf-8')
     (u/'favourites.xml').write_text('<favourites><favourite name="Dragon Portal">ActivateWindow(Programs,plugin.program.dragonmaxwizard,return)</favourite></favourites>',encoding='utf-8')
     (u/'keymaps'/'dragonmax.xml').write_text('<keymap><global><keyboard><menu>ActivateWindow(Programs,plugin.program.dragonmaxwizard,return)</menu></keyboard></global></keymap>',encoding='utf-8')
 
 
 def manifest():
-    data={
-        'name':'DragonMax V12 Unified','version':'4.0.0','merge_policy':'V9.2 baseline + V11/V12 overlay',
-        'target_device':'Fire TV Stick 4K Max','realms':[n for s,n,t in REALMS],
-        'release_priority':['quality','stability','smooth_use','visual_consistency','package_size'],
-        'capabilities':['Dragon Voice','Dragon AI intent engine','authenticated LAN command bridge','safe confirmations','remote-control fallback']
-    }
+    data={'name':'DragonMax V12 Unified','version':'4.0.0','merge_policy':'V9.2 baseline + V11/V12 overlay','target_device':'Fire TV Stick 4K Max','realms':[n for s,n,t in REALMS],'release_priority':['quality','stability','smooth_use','visual_consistency','package_size'],'capabilities':['Dragon Voice','Dragon AI intent engine','persistent explicit memory','recent conversation context','allow-listed reversible self-repair','repair history','authenticated LAN command bridge','safe confirmations','remote-control fallback']}
     (STAGE/'dragonmax_manifest.json').write_text(json.dumps(data,indent=2),encoding='utf-8')
 
 
@@ -200,47 +158,22 @@ def write_zip():
 
 
 def validate_quality():
-    required = [
-        STAGE/'addons'/'skin.auramod',
-        STAGE/'addons'/'service.dragonmax.voice'/'addon.xml',
-        STAGE/'addons'/'service.dragonmax.voice'/'service.py',
-        STAGE/'userdata',
-        STAGE/'dragonmax'/'config'/'menus.json',
-        STAGE/'dragonmax'/'config'/'widgets.json',
-        STAGE/'dragonmax'/'config'/'realms.json',
-        STAGE/'dragonmax'/'config'/'performance.json',
-        STAGE/'dragonmax'/'config'/'voice.json',
-        STAGE/'startup'/'dragonmax_static_splash.png',
-    ]
+    required = [STAGE/'addons'/'skin.auramod',STAGE/'addons'/'service.dragonmax.voice'/'addon.xml',STAGE/'addons'/'service.dragonmax.voice'/'service.py',STAGE/'addons'/'service.dragonmax.voice'/'dragon_memory.py',STAGE/'addons'/'service.dragonmax.voice'/'self_repair.py',STAGE/'userdata',STAGE/'dragonmax'/'config'/'menus.json',STAGE/'dragonmax'/'config'/'widgets.json',STAGE/'dragonmax'/'config'/'realms.json',STAGE/'dragonmax'/'config'/'performance.json',STAGE/'dragonmax'/'config'/'voice.json',STAGE/'startup'/'dragonmax_static_splash.png']
     missing=[str(p.relative_to(STAGE)) for p in required if not p.exists()]
-    if missing:
-        raise RuntimeError('Missing required V12 content: '+', '.join(missing))
-    for name in ['menus.json','widgets.json','realms.json','performance.json','voice.json']:
-        json.loads((STAGE/'dragonmax'/'config'/name).read_text(encoding='utf-8'))
-    # Compile the Python service without importing Kodi-only modules.
-    compile((STAGE/'addons'/'service.dragonmax.voice'/'service.py').read_text(encoding='utf-8'), 'service.py', 'exec')
+    if missing: raise RuntimeError('Missing required V12 content: '+', '.join(missing))
+    for name in ['menus.json','widgets.json','realms.json','performance.json','voice.json']: json.loads((STAGE/'dragonmax'/'config'/name).read_text(encoding='utf-8'))
+    for name in ['service.py','dragon_memory.py','self_repair.py']: compile((STAGE/'addons'/'service.dragonmax.voice'/name).read_text(encoding='utf-8'), name, 'exec')
 
 
 def make_zip():
-    validate_quality()
-    write_zip()
-    size=BUILD.stat().st_size
-    mb=size/1024/1024
+    validate_quality(); write_zip(); size=BUILD.stat().st_size; mb=size/1024/1024
     print(f'V12 payload size: {mb:.2f} MiB')
-    if size < IDEAL_SIZE:
-        print(f'INFO package is below the ~280 MiB ideal by {(IDEAL_SIZE-size)/1024/1024:.2f} MiB; accepted because quality gates take priority.')
-    elif size > SOFT_MAX:
-        print(f'WARN package is above the 320 MiB soft ceiling at {mb:.2f} MiB; review before launch for Fire TV storage/performance impact.')
+    if size < IDEAL_SIZE: print(f'INFO package is below the ~280 MiB ideal by {(IDEAL_SIZE-size)/1024/1024:.2f} MiB; accepted because quality gates take priority.')
+    elif size > SOFT_MAX: print(f'WARN package is above the 320 MiB soft ceiling at {mb:.2f} MiB; review before launch for Fire TV storage/performance impact.')
     with zipfile.ZipFile(BUILD) as z:
         bad=z.testzip()
         if bad: raise RuntimeError('Corrupt ZIP member: '+bad)
-        names=z.namelist()
-        checks={
-            'userdata': any('/userdata/' in '/'+n for n in names),
-            'AuraMOD': any('/addons/skin.auramod/' in '/'+n for n in names),
-            'DragonMax config': any('/dragonmax/config/' in '/'+n for n in names),
-            'Dragon Voice': any('/addons/service.dragonmax.voice/' in '/'+n for n in names),
-        }
+        names=z.namelist(); checks={'userdata':any('/userdata/' in '/'+n for n in names),'AuraMOD':any('/addons/skin.auramod/' in '/'+n for n in names),'DragonMax config':any('/dragonmax/config/' in '/'+n for n in names),'Dragon Voice':any('/addons/service.dragonmax.voice/' in '/'+n for n in names),'Dragon Memory':any(n.endswith('/addons/service.dragonmax.voice/dragon_memory.py') for n in names),'Self Repair':any(n.endswith('/addons/service.dragonmax.voice/self_repair.py') for n in names)}
         failed=[name for name,ok in checks.items() if not ok]
         if failed: raise RuntimeError('ZIP missing required content: '+', '.join(failed))
 
@@ -252,16 +185,6 @@ def publish_repo_files():
 
 
 def main():
-    clean()
-    copy_legacy()
-    install_auramod()
-    install_dragonmax_addons()
-    generate_media()
-    generate_userdata()
-    manifest()
-    make_zip()
-    publish_repo_files()
-    print('DragonMax V12 distribution build complete:',BUILD)
+    clean(); copy_legacy(); install_auramod(); install_dragonmax_addons(); generate_media(); generate_userdata(); manifest(); make_zip(); publish_repo_files(); print('DragonMax V12 distribution build complete:',BUILD)
 
-if __name__=='__main__':
-    main()
+if __name__=='__main__': main()
