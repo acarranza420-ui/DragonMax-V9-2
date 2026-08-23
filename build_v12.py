@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json, math, shutil, struct, urllib.request, wave, zipfile, zlib
 from pathlib import Path
+import repo_release
 
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT / 'public'
@@ -179,12 +180,12 @@ def make_zip():
 
 
 def publish_repo_files():
-    for name in ['index.html','addons.xml','addons.xml.md5','build.json','updates.json','themes.json','realms.json']:
+    for name in ['index.html','build.json','updates.json','themes.json','realms.json']:
         src=ROOT/name
         if src.exists(): shutil.copy2(src,OUT/name)
 
 
 def main():
-    clean(); copy_legacy(); install_auramod(); install_dragonmax_addons(); generate_media(); generate_userdata(); manifest(); make_zip(); publish_repo_files(); print('DragonMax V12 distribution build complete:',BUILD)
+    clean(); copy_legacy(); install_auramod(); install_dragonmax_addons(); generate_media(); generate_userdata(); manifest(); make_zip(); publish_repo_files(); repo_release.publish(ROOT, OUT); print('DragonMax V12 distribution build complete:',BUILD)
 
 if __name__=='__main__': main()
