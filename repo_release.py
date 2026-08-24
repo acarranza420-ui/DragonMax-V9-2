@@ -4,7 +4,7 @@ import io
 import zipfile
 from pathlib import Path
 
-VERSION = '4.0.1'
+VERSION = '4.0.2'
 HOST = 'https://dragonmax-v12-release.onrender.com/'
 PAYLOAD = HOST + 'builds/DragonMax_V12_Unified_Build_Content-4.0.0.zip'
 XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -29,9 +29,7 @@ REPO_ADDON = f'''{XML_DECL}
 WIZARD_ADDON = f'''{XML_DECL}
 <addon id="plugin.program.dragonmaxwizard" name="DragonMax Wizard" version="{VERSION}" provider-name="DragonMax RD">
   <requires><import addon="xbmc.python" version="3.0.0"/></requires>
-  <extension point="xbmc.python.pluginsource" library="default.py">
-    <provides>executable</provides>
-  </extension>
+  <extension point="xbmc.python.pluginsource" library="default.py"><provides>executable</provides></extension>
   <extension point="xbmc.addon.metadata">
     <summary>DragonMax V12 staging installer</summary>
     <description>Downloads, validates, backs up, stages, and applies DragonMax V12 Unified for device testing.</description>
@@ -44,7 +42,6 @@ WIZARD_DEFAULT = r'''#!/usr/bin/env python3
 import json
 import os
 import shutil
-import tempfile
 import time
 import traceback
 import urllib.request
@@ -57,6 +54,7 @@ import xbmcvfs
 BUILD_JSON = 'https://dragonmax-v12-release.onrender.com/build.json'
 PAYLOAD = 'https://dragonmax-v12-release.onrender.com/builds/DragonMax_V12_Unified_Build_Content-4.0.0.zip'
 ADDON_ID = 'plugin.program.dragonmaxwizard'
+VERSION = '4.0.2'
 
 
 def log(msg, level=xbmc.LOGINFO):
@@ -73,9 +71,29 @@ def profile_path():
     return path
 
 
+def work_path():
+    candidates = [
+        xbmcvfs.translatePath('special://temp/dragonmax-v12/'),
+        os.path.join(profile_path(), 'work'),
+    ]
+    last_error = None
+    for path in candidates:
+        try:
+            shutil.rmtree(path, ignore_errors=True)
+            os.makedirs(path, exist_ok=True)
+            test = os.path.join(path, '.write-test')
+            with open(test, 'wb') as f:
+                f.write(b'ok')
+            os.remove(test)
+            return path
+        except Exception as e:
+            last_error = e
+    raise RuntimeError('No writable DragonMax work directory: ' + str(last_error))
+
+
 def request(url, timeout=60):
     req = urllib.request.Request(url, headers={
-        'User-Agent': 'Kodi/21 DragonMaxWizard/4.0.1',
+        'User-Agent': 'Kodi/21 DragonMaxWizard/' + VERSION,
         'Accept': '*/*',
         'Connection': 'close',
     })
@@ -88,8 +106,8 @@ def get_json(url):
 
 
 def download(url, dst):
-    with request(url, 240) as r, open(dst, 'wb') as f:
-        shutil.copyfileobj(r, f)
+    with request(url, 300) as r, open(dst, 'wb') as f:
+        shutil.copyfileobj(r, f, length=1024 * 1024)
 
 
 def backup(home, userdata):
@@ -128,7 +146,7 @@ def apply_tree(src_root, home):
 
 def main():
     dlg = xbmcgui.Dialog()
-    log('Wizard launch started')
+    log('Wizard launch started, version ' + VERSION)
 
     try:
         meta = get_json(BUILD_JSON)
@@ -139,12 +157,10 @@ def main():
         return
 
     if not build.get('ready', False):
-        if not dlg.yesno(
-            'DragonMax V12 STAGING TEST',
-            'This build is not marked release-ready yet.\n\n'
-            'A rollback backup will be created before installation.\n\n'
-            'Install this staging build now?'
-        ):
+        if not dlg.yesno('DragonMax V12 STAGING TEST',
+                         'This build is not marked release-ready yet.\n\n'
+                         'A rollback backup will be created before installation.\n\n'
+                         'Install this staging build now?'):
             return
 
     home = xbmcvfs.translatePath('special://home/')
@@ -154,12 +170,11 @@ def main():
         free = xbmcvfs.getDiskSpace(home)
     except Exception:
         free = 0
-
     if free and free < 600 * 1024 * 1024:
         dlg.ok('DragonMax Wizard', 'At least 600 MB free space is required for safe staging and rollback.')
         return
 
-    work = tempfile.mkdtemp(prefix='dragonmax-v12-')
+    work = work_path()
     zpath = os.path.join(work, 'dragonmax.zip')
     extract = os.path.join(work, 'extract')
     backup_root = None
@@ -167,26 +182,22 @@ def main():
     try:
         note('Downloading DragonMax V12...')
         download(PAYLOAD, zpath)
-
         minimum = float(build.get('minimum_size_mb', 60)) * 1024 * 1024
         if os.path.getsize(zpath) < minimum:
             raise RuntimeError('Downloaded payload is smaller than the declared minimum.')
 
+        os.makedirs(extract, exist_ok=True)
         with zipfile.ZipFile(zpath) as z:
             bad = z.testzip()
             if bad:
                 raise RuntimeError('Corrupt ZIP member: ' + bad)
             z.extractall(extract)
 
-        roots = [
-            os.path.join(extract, n)
-            for n in os.listdir(extract)
-            if os.path.isdir(os.path.join(extract, n))
-        ]
+        roots = [os.path.join(extract, n) for n in os.listdir(extract) if os.path.isdir(os.path.join(extract, n))]
         if len(roots) != 1:
             raise RuntimeError('Unexpected payload layout.')
-
         root = roots[0]
+
         required = [
             os.path.join(root, 'addons', 'skin.auramod'),
             os.path.join(root, 'addons', 'service.dragonmax.voice'),
@@ -201,12 +212,10 @@ def main():
         note('Applying DragonMax V12...')
         apply_tree(root, home)
 
-        dlg.ok(
-            'DragonMax V12 Installed',
-            'Staging installation completed.\n\n'
-            'Fully exit Kodi, reopen it, then begin device testing.\n\n'
-            'Rollback backup: ' + backup_root
-        )
+        dlg.ok('DragonMax V12 Installed',
+               'Staging installation completed.\n\n'
+               'Fully exit Kodi, reopen it, then begin device testing.\n\n'
+               'Rollback backup: ' + backup_root)
     except Exception as e:
         log(traceback.format_exc(), xbmc.LOGERROR)
         if backup_root:
@@ -247,8 +256,6 @@ def addon_fragment(xml_text):
 
 def publish(root: Path, out: Path):
     addons = XML_DECL + '\n<addons>\n' + addon_fragment(REPO_ADDON) + '\n' + addon_fragment(WIZARD_ADDON) + '\n</addons>\n'
-
-    # Validate both Python and XML before publishing anything.
     compile(WIZARD_DEFAULT, 'default.py', 'exec')
     import xml.etree.ElementTree as ET
     ET.fromstring(addons)
@@ -259,7 +266,6 @@ def publish(root: Path, out: Path):
     repo_zip = zip_bytes('repository.dragonmax', {'addon.xml': REPO_ADDON})
     wizard_zip = zip_bytes('plugin.program.dragonmaxwizard', {'addon.xml': WIZARD_ADDON, 'default.py': WIZARD_DEFAULT})
 
-    # Current 4.0.1 release.
     (out / f'repository.dragonmax-{VERSION}.zip').write_bytes(repo_zip)
     (out / f'plugin.program.dragonmaxwizard-{VERSION}.zip').write_bytes(wizard_zip)
 
@@ -281,4 +287,4 @@ def publish(root: Path, out: Path):
             if bad:
                 raise RuntimeError('Corrupt generated installer ZIP member: ' + bad)
 
-    print('DragonMax repository and wizard 4.0.1 artifacts generated, Python compiled, and XML validated.')
+    print('DragonMax repository and wizard 4.0.2 artifacts generated, Python compiled, XML validated, and Fire TV temp handling enabled.')
