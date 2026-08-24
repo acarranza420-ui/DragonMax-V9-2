@@ -8,8 +8,9 @@ from pathlib import Path
 VERSION = '4.0.0'
 HOST = 'https://dragonmax-v12-release.onrender.com/'
 PAYLOAD = HOST + 'builds/DragonMax_V12_Unified_Build_Content-4.0.0.zip'
+XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
 
-REPO_ADDON = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+REPO_ADDON = f'''{XML_DECL}
 <addon id="repository.dragonmax" name="DragonMax Repository" version="{VERSION}" provider-name="DragonMax RD">
   <extension point="xbmc.addon.repository" name="DragonMax Repository">
     <dir minversion="21.0.0">
@@ -26,7 +27,7 @@ REPO_ADDON = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 </addon>
 '''
 
-WIZARD_ADDON = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+WIZARD_ADDON = f'''{XML_DECL}
 <addon id="plugin.program.dragonmaxwizard" name="DragonMax Wizard" version="{VERSION}" provider-name="DragonMax RD">
   <requires><import addon="xbmc.python" version="3.0.0"/></requires>
   <extension point="xbmc.python.script" library="default.py"><provides>executable</provides></extension>
@@ -188,15 +189,42 @@ def zip_bytes(folder, files):
     return out.getvalue()
 
 
+def addon_fragment(xml_text):
+    return xml_text.replace(XML_DECL, '', 1).strip()
+
+
 def publish(root: Path, out: Path):
-    addons = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<addons>\n' + REPO_ADDON + '\n' + WIZARD_ADDON + '\n</addons>\n'
+    addons = XML_DECL + '\n<addons>\n' + addon_fragment(REPO_ADDON) + '\n' + addon_fragment(WIZARD_ADDON) + '\n</addons>\n'
     (out / 'addons.xml').write_text(addons, encoding='utf-8')
     (out / 'addons.xml.md5').write_text(hashlib.md5(addons.encode('utf-8')).hexdigest(), encoding='utf-8')
-    (out / 'repository.dragonmax-4.0.0.zip').write_bytes(zip_bytes('repository.dragonmax', {'addon.xml': REPO_ADDON}))
-    (out / 'plugin.program.dragonmaxwizard-4.0.0.zip').write_bytes(zip_bytes('plugin.program.dragonmaxwizard', {'addon.xml': WIZARD_ADDON, 'default.py': WIZARD_DEFAULT}))
-    for name in ('repository.dragonmax-4.0.0.zip', 'plugin.program.dragonmaxwizard-4.0.0.zip'):
-        with zipfile.ZipFile(out / name) as z:
+
+    repo_zip = zip_bytes('repository.dragonmax', {'addon.xml': REPO_ADDON})
+    wizard_zip = zip_bytes('plugin.program.dragonmaxwizard', {'addon.xml': WIZARD_ADDON, 'default.py': WIZARD_DEFAULT})
+
+    # Root copies are convenient for Kodi File Manager -> Install from zip file.
+    (out / 'repository.dragonmax-4.0.0.zip').write_bytes(repo_zip)
+    (out / 'plugin.program.dragonmaxwizard-4.0.0.zip').write_bytes(wizard_zip)
+
+    # Kodi repository datadir resolves packages under <addon-id>/<addon-id>-<version>.zip.
+    repo_dir = out / 'repository.dragonmax'
+    wizard_dir = out / 'plugin.program.dragonmaxwizard'
+    repo_dir.mkdir(parents=True, exist_ok=True)
+    wizard_dir.mkdir(parents=True, exist_ok=True)
+    (repo_dir / 'repository.dragonmax-4.0.0.zip').write_bytes(repo_zip)
+    (wizard_dir / 'plugin.program.dragonmaxwizard-4.0.0.zip').write_bytes(wizard_zip)
+
+    for path in (
+        out / 'repository.dragonmax-4.0.0.zip',
+        out / 'plugin.program.dragonmaxwizard-4.0.0.zip',
+        repo_dir / 'repository.dragonmax-4.0.0.zip',
+        wizard_dir / 'plugin.program.dragonmaxwizard-4.0.0.zip',
+    ):
+        with zipfile.ZipFile(path) as z:
             bad = z.testzip()
             if bad:
                 raise RuntimeError('Corrupt generated installer ZIP member: ' + bad)
-    print('DragonMax repository and wizard 4.0.0 artifacts generated.')
+
+    # Fail the build if the repository index itself is malformed.
+    import xml.etree.ElementTree as ET
+    ET.fromstring(addons)
+    print('DragonMax repository and wizard 4.0.0 artifacts generated and XML validated.')
