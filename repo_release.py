@@ -5,7 +5,7 @@ import io
 import zipfile
 from pathlib import Path
 
-VERSION = '4.2.0'
+VERSION = '4.2.1'
 HOST = 'https://dragonmax-v12-release.onrender.com/'
 XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
 
@@ -32,7 +32,7 @@ WIZARD_ADDON = f'''{XML_DECL}
   <extension point="xbmc.python.pluginsource" library="default.py"><provides>executable</provides></extension>
   <extension point="xbmc.addon.metadata">
     <summary>DragonMax V12 guarded transactional installer</summary>
-    <description>Kodi 21-safe progressive extraction, allowlisted install roots, metadata-only manifest handling, destination preflight, rollback, and integrity verification.</description>
+    <description>Verifies the full payload, installs only allowlisted Kodi roots, safely ignores legacy wrapper debris, preflights destinations, and rolls back failed applies.</description>
     <platform>all</platform>
   </extension>
 </addon>
@@ -55,11 +55,8 @@ import xbmcvfs
 HOST = 'https://dragonmax-v12-release.onrender.com/'
 BUILD_JSON = HOST + 'build.json'
 ADDON_ID = 'plugin.program.dragonmaxwizard'
-VERSION = '4.2.0'
+VERSION = '4.2.1'
 
-# Only these payload roots are ever allowed to mutate Kodi. Root-level metadata is
-# verified but never installed. This prevents legacy payload debris and Android
-# permission traps from becoming device mutations.
 ALLOWED_ROOTS = ('addons/', 'userdata/', 'artwork/', 'audio/', 'startup/', 'dragonmax/')
 METADATA_ONLY = {'dragonmax_manifest.json', 'dragonmax/install_manifest.json'}
 PROTECTED_PREFIXES = (
@@ -170,18 +167,6 @@ def safe_extract(zpath, extract, progress):
                 progress_update(progress, 25 + (20 * i / total), 'Testing and extracting package\n' + name[-70:])
 
 
-def payload_files(root):
-    rows = []
-    for base, dirs, files in os.walk(root):
-        for name in files:
-            src = os.path.join(base, name)
-            rel = normalized(os.path.relpath(src, root))
-            if installable(rel):
-                rows.append((rel, src))
-    rows.sort(key=lambda x: x[0])
-    return rows
-
-
 def verify_install_manifest(root, progress):
     manifest_path = os.path.join(root, 'dragonmax', 'install_manifest.json')
     if not os.path.isfile(manifest_path):
@@ -191,6 +176,7 @@ def verify_install_manifest(root, progress):
     expected = [row for row in manifest.get('files', []) if isinstance(row, dict) and row.get('path')]
     if not expected:
         raise RuntimeError('Payload install manifest is empty.')
+    skipped = []
     total = max(1, len(expected))
     for i, row in enumerate(expected, 1):
         rel = normalized(row['path'])
@@ -203,29 +189,39 @@ def verify_install_manifest(root, progress):
             raise RuntimeError('Payload file size mismatch: ' + rel)
         if sha256_file(path).lower() != str(row['sha256']).lower():
             raise RuntimeError('Payload file checksum mismatch: ' + rel)
+        if rel not in METADATA_ONLY and not any(rel.startswith(r) for r in ALLOWED_ROOTS):
+            skipped.append(rel)
         if i == 1 or i == total or i % 50 == 0:
             progress_update(progress, 45 + (10 * i / total), 'Verifying payload files\n' + rel[-70:])
+    return skipped
+
+
+def payload_files(root):
+    rows = []
+    for base, _dirs, files in os.walk(root):
+        for name in files:
+            src = os.path.join(base, name)
+            rel = normalized(os.path.relpath(src, root))
+            if installable(rel):
+                rows.append((rel, src))
+    rows.sort(key=lambda x: x[0])
+    return rows
 
 
 def preflight_destinations(home, files):
-    # Probe each unique existing destination parent before we back up or overwrite
-    # anything. Missing parents are created under known-safe top-level roots only.
-    parents = set()
+    roots = set()
     for rel, _src in files:
-        dst = os.path.join(home, rel.replace('/', os.sep))
-        parent = os.path.dirname(dst)
-        while parent and not os.path.exists(parent):
-            parent = os.path.dirname(parent)
-        if parent:
-            parents.add(parent)
-    for parent in sorted(parents):
+        top = rel.split('/', 1)[0]
+        roots.add(os.path.join(home, top))
+    for target_root in sorted(roots):
+        parent = target_root if os.path.isdir(target_root) else home
         probe = os.path.join(parent, '.dragonmax-write-probe')
         try:
             with open(probe, 'wb') as f:
                 f.write(b'ok')
             os.remove(probe)
         except Exception as e:
-            raise RuntimeError('Destination is not writable: %s (%s)' % (parent, e))
+            raise RuntimeError('DragonMax cannot write to required Kodi location: %s (%s)' % (parent, e))
 
 
 def backup_targets(home, files, backup_root, progress):
@@ -294,7 +290,7 @@ def main():
 
     if not build.get('ready', False) and not dlg.yesno(
         'DragonMax V12 STAGING TEST',
-        'This staging installer verifies every payload file, ignores metadata-only root files, installs only allowlisted Kodi roots, preflights destination writes, backs up touched files, and rolls back failed applies.\n\nInstall now?'
+        'This installer verifies the entire payload, installs only approved Kodi roots, safely skips legacy wrapper debris, preflights writes, backs up touched files, and rolls back failed applies.\n\nInstall now?'
     ):
         return
 
@@ -348,18 +344,14 @@ def main():
             raise RuntimeError('Payload is missing required DragonMax components.')
 
         progress_update(progress, 45, 'Verifying every payload file')
-        verify_install_manifest(root, progress)
+        skipped = verify_install_manifest(root, progress)
+        if skipped:
+            log('Verified and skipped %d non-installable legacy/metadata paths. First: %s' % (len(skipped), skipped[0]), xbmc.LOGWARNING)
+            progress_update(progress, 55, 'Ignoring verified legacy wrapper debris\n%d non-installable files' % len(skipped))
+
         files = payload_files(root)
         if not files:
             raise RuntimeError('No installable files were found in the payload.')
-        unknown = []
-        for base, _dirs, names in os.walk(root):
-            for name in names:
-                rel = normalized(os.path.relpath(os.path.join(base, name), root))
-                if rel not in METADATA_ONLY and not protected(rel) and not any(rel.startswith(r) for r in ALLOWED_ROOTS):
-                    unknown.append(rel)
-        if unknown:
-            raise RuntimeError('Payload contains unexpected non-installable paths: ' + ', '.join(unknown[:5]))
 
         progress_update(progress, 56, 'Preflighting destination permissions')
         preflight_destinations(home, files)
@@ -413,15 +405,14 @@ def validate_wizard_static_gates(source):
     tree = ast.parse(source)
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if node.func.attr in ('create', 'update') and isinstance(node.func.value, ast.Name) and node.func.value.id == 'progress':
-                if len(node.args) > 2:
-                    raise RuntimeError('Kodi DialogProgress API gate failed: %s called with %d positional args' % (node.func.attr, len(node.args)))
-    required = ['ALLOWED_ROOTS', 'METADATA_ONLY', 'preflight_destinations', 'safe_extract', 'rollback_transaction']
+            if node.func.attr in ('create', 'update') and isinstance(node.func.value, ast.Name) and node.func.value.id == 'progress' and len(node.args) > 2:
+                raise RuntimeError('Kodi DialogProgress API gate failed: %s called with %d positional args' % (node.func.attr, len(node.args)))
+    required = ['ALLOWED_ROOTS', 'METADATA_ONLY', 'preflight_destinations', 'safe_extract', 'rollback_transaction', 'skipped = verify_install_manifest']
     for token in required:
         if token not in source:
             raise RuntimeError('Installer safety gate missing: ' + token)
-    if "'dragonmax_manifest.json'" not in source:
-        raise RuntimeError('Metadata-only root manifest gate missing')
+    if 'Payload contains unexpected non-installable paths' in source:
+        raise RuntimeError('Legacy-wrapper false-positive gate regression detected')
 
 
 def publish(root: Path, out: Path):
@@ -444,4 +435,4 @@ def publish(root: Path, out: Path):
             bad = z.testzip()
             if bad:
                 raise RuntimeError('Corrupt generated installer ZIP member: ' + bad)
-    print('DragonMax repository and wizard 4.2.0 generated; Superman safety gates passed.')
+    print('DragonMax repository and wizard 4.2.1 generated; legacy wrapper skip and Superman gates passed.')
