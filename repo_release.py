@@ -4,7 +4,7 @@ import io
 import zipfile
 from pathlib import Path
 
-VERSION = '4.0.2'
+VERSION = '4.0.3'
 HOST = 'https://dragonmax-v12-release.onrender.com/'
 PAYLOAD = HOST + 'builds/DragonMax_V12_Unified_Build_Content-4.0.0.zip'
 XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -54,7 +54,7 @@ import xbmcvfs
 BUILD_JSON = 'https://dragonmax-v12-release.onrender.com/build.json'
 PAYLOAD = 'https://dragonmax-v12-release.onrender.com/builds/DragonMax_V12_Unified_Build_Content-4.0.0.zip'
 ADDON_ID = 'plugin.program.dragonmaxwizard'
-VERSION = '4.0.2'
+VERSION = '4.0.3'
 
 
 def log(msg, level=xbmc.LOGINFO):
@@ -112,10 +112,19 @@ def download(url, dst):
 
 def backup(home, userdata):
     stamp = time.strftime('%Y%m%d-%H%M%S')
-    root = os.path.join(profile_path(), 'backups', stamp)
+    root = os.path.join(home, 'dragonmax_backups', stamp)
     os.makedirs(root, exist_ok=True)
+
+    # Never place a userdata backup inside userdata itself. Doing that recursively
+    # copies the backup into itself and can appear as a frozen Fire TV install.
     if os.path.isdir(userdata):
-        shutil.copytree(userdata, os.path.join(root, 'userdata'), dirs_exist_ok=True)
+        ignore = shutil.ignore_patterns(
+            'plugin.program.dragonmaxwizard',
+            'temp',
+            'Thumbnails'
+        )
+        shutil.copytree(userdata, os.path.join(root, 'userdata'), dirs_exist_ok=True, ignore=ignore)
+
     for addon in ('skin.auramod', 'service.dragonmax.voice'):
         src = os.path.join(home, 'addons', addon)
         if os.path.isdir(src):
@@ -287,4 +296,4 @@ def publish(root: Path, out: Path):
             if bad:
                 raise RuntimeError('Corrupt generated installer ZIP member: ' + bad)
 
-    print('DragonMax repository and wizard 4.0.2 artifacts generated, Python compiled, XML validated, and Fire TV temp handling enabled.')
+    print('DragonMax repository and wizard 4.0.3 artifacts generated, recursive backup bug fixed, Python compiled, and XML validated.')
