@@ -4,7 +4,7 @@ import io
 import zipfile
 from pathlib import Path
 
-VERSION = '4.0.3'
+VERSION = '4.0.4'
 HOST = 'https://dragonmax-v12-release.onrender.com/'
 PAYLOAD = HOST + 'builds/DragonMax_V12_Unified_Build_Content-4.0.0.zip'
 XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -32,29 +32,20 @@ WIZARD_ADDON = f'''{XML_DECL}
   <extension point="xbmc.python.pluginsource" library="default.py"><provides>executable</provides></extension>
   <extension point="xbmc.addon.metadata">
     <summary>DragonMax V12 staging installer</summary>
-    <description>Downloads, validates, backs up, stages, and applies DragonMax V12 Unified for device testing.</description>
+    <description>Downloads, validates, safely backs up, stages, and applies DragonMax V12 Unified for device testing.</description>
     <platform>all</platform>
   </extension>
 </addon>
 '''
 
 WIZARD_DEFAULT = r'''#!/usr/bin/env python3
-import json
-import os
-import shutil
-import time
-import traceback
-import urllib.request
-import zipfile
-
-import xbmc
-import xbmcgui
-import xbmcvfs
+import json, os, shutil, time, traceback, urllib.request, zipfile
+import xbmc, xbmcgui, xbmcvfs
 
 BUILD_JSON = 'https://dragonmax-v12-release.onrender.com/build.json'
 PAYLOAD = 'https://dragonmax-v12-release.onrender.com/builds/DragonMax_V12_Unified_Build_Content-4.0.0.zip'
 ADDON_ID = 'plugin.program.dragonmaxwizard'
-VERSION = '4.0.3'
+VERSION = '4.0.4'
 
 
 def log(msg, level=xbmc.LOGINFO):
@@ -72,19 +63,16 @@ def profile_path():
 
 
 def work_path():
-    candidates = [
-        xbmcvfs.translatePath('special://temp/dragonmax-v12/'),
-        os.path.join(profile_path(), 'work'),
-    ]
+    candidates = [xbmcvfs.translatePath('special://temp/dragonmax-v12/'), os.path.join(profile_path(), 'work')]
     last_error = None
     for path in candidates:
         try:
             shutil.rmtree(path, ignore_errors=True)
             os.makedirs(path, exist_ok=True)
-            test = os.path.join(path, '.write-test')
-            with open(test, 'wb') as f:
+            probe = os.path.join(path, '.write-test')
+            with open(probe, 'wb') as f:
                 f.write(b'ok')
-            os.remove(test)
+            os.remove(probe)
             return path
         except Exception as e:
             last_error = e
@@ -92,11 +80,7 @@ def work_path():
 
 
 def request(url, timeout=60):
-    req = urllib.request.Request(url, headers={
-        'User-Agent': 'Kodi/21 DragonMaxWizard/' + VERSION,
-        'Accept': '*/*',
-        'Connection': 'close',
-    })
+    req = urllib.request.Request(url, headers={'User-Agent': 'Kodi/21 DragonMaxWizard/' + VERSION, 'Accept': '*/*', 'Connection': 'close'})
     return urllib.request.urlopen(req, timeout=timeout)
 
 
@@ -110,27 +94,48 @@ def download(url, dst):
         shutil.copyfileobj(r, f, length=1024 * 1024)
 
 
+def copy_if_readable(src, dst):
+    try:
+        if os.path.isfile(src):
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(src, dst)
+            return True
+    except (PermissionError, OSError) as e:
+        log('Backup skipped unreadable file: %s (%s)' % (src, e), xbmc.LOGWARNING)
+    return False
+
+
 def backup(home, userdata):
     stamp = time.strftime('%Y%m%d-%H%M%S')
     root = os.path.join(home, 'dragonmax_backups', stamp)
     os.makedirs(root, exist_ok=True)
 
-    # Never place a userdata backup inside userdata itself. Doing that recursively
-    # copies the backup into itself and can appear as a frozen Fire TV install.
-    if os.path.isdir(userdata):
-        ignore = shutil.ignore_patterns(
-            'plugin.program.dragonmaxwizard',
-            'temp',
-            'Thumbnails'
-        )
-        shutil.copytree(userdata, os.path.join(root, 'userdata'), dirs_exist_ok=True, ignore=ignore)
+    # Kodi keeps several SQLite databases open while it is running. Android can
+    # refuse direct reads of those files, so do not copy Database at all during a
+    # live install. Back up only user configuration that is safe to read.
+    safe_files = (
+        'advancedsettings.xml', 'guisettings.xml', 'profiles.xml',
+        'sources.xml', 'favourites.xml', 'RssFeeds.xml', 'mediasources.xml'
+    )
+    for name in safe_files:
+        copy_if_readable(os.path.join(userdata, name), os.path.join(root, 'userdata', name))
+
+    keymaps = os.path.join(userdata, 'keymaps')
+    if os.path.isdir(keymaps):
+        try:
+            shutil.copytree(keymaps, os.path.join(root, 'userdata', 'keymaps'), dirs_exist_ok=True)
+        except (PermissionError, OSError) as e:
+            log('Backup skipped keymaps: ' + str(e), xbmc.LOGWARNING)
 
     for addon in ('skin.auramod', 'service.dragonmax.voice'):
         src = os.path.join(home, 'addons', addon)
         if os.path.isdir(src):
-            dst = os.path.join(root, 'addons', addon)
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copytree(src, dst, dirs_exist_ok=True)
+            try:
+                dst = os.path.join(root, 'addons', addon)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copytree(src, dst, dirs_exist_ok=True)
+            except (PermissionError, OSError) as e:
+                log('Backup skipped addon %s: %s' % (addon, e), xbmc.LOGWARNING)
     return root
 
 
@@ -156,25 +161,18 @@ def apply_tree(src_root, home):
 def main():
     dlg = xbmcgui.Dialog()
     log('Wizard launch started, version ' + VERSION)
-
     try:
-        meta = get_json(BUILD_JSON)
-        build = meta['builds'][0]
+        build = get_json(BUILD_JSON)['builds'][0]
     except Exception as e:
-        log('Metadata load failed: ' + repr(e), xbmc.LOGERROR)
         dlg.ok('DragonMax Wizard', 'Could not load staging metadata.\n\n' + str(e))
         return
 
-    if not build.get('ready', False):
-        if not dlg.yesno('DragonMax V12 STAGING TEST',
-                         'This build is not marked release-ready yet.\n\n'
-                         'A rollback backup will be created before installation.\n\n'
-                         'Install this staging build now?'):
-            return
+    if not build.get('ready', False) and not dlg.yesno('DragonMax V12 STAGING TEST',
+        'This build is not marked release-ready yet.\n\nA safe rollback backup will be created before installation.\n\nInstall this staging build now?'):
+        return
 
     home = xbmcvfs.translatePath('special://home/')
     userdata = xbmcvfs.translatePath('special://userdata/')
-
     try:
         free = xbmcvfs.getDiskSpace(home)
     except Exception:
@@ -184,47 +182,32 @@ def main():
         return
 
     work = work_path()
-    zpath = os.path.join(work, 'dragonmax.zip')
-    extract = os.path.join(work, 'extract')
+    zpath, extract = os.path.join(work, 'dragonmax.zip'), os.path.join(work, 'extract')
     backup_root = None
-
     try:
         note('Downloading DragonMax V12...')
         download(PAYLOAD, zpath)
-        minimum = float(build.get('minimum_size_mb', 60)) * 1024 * 1024
-        if os.path.getsize(zpath) < minimum:
+        if os.path.getsize(zpath) < float(build.get('minimum_size_mb', 60)) * 1024 * 1024:
             raise RuntimeError('Downloaded payload is smaller than the declared minimum.')
-
         os.makedirs(extract, exist_ok=True)
         with zipfile.ZipFile(zpath) as z:
             bad = z.testzip()
             if bad:
                 raise RuntimeError('Corrupt ZIP member: ' + bad)
             z.extractall(extract)
-
         roots = [os.path.join(extract, n) for n in os.listdir(extract) if os.path.isdir(os.path.join(extract, n))]
         if len(roots) != 1:
             raise RuntimeError('Unexpected payload layout.')
         root = roots[0]
-
-        required = [
-            os.path.join(root, 'addons', 'skin.auramod'),
-            os.path.join(root, 'addons', 'service.dragonmax.voice'),
-            os.path.join(root, 'userdata'),
-            os.path.join(root, 'dragonmax', 'config'),
-        ]
+        required = [os.path.join(root, 'addons', 'skin.auramod'), os.path.join(root, 'addons', 'service.dragonmax.voice'), os.path.join(root, 'userdata'), os.path.join(root, 'dragonmax', 'config')]
         if any(not os.path.exists(p) for p in required):
             raise RuntimeError('Payload is missing required DragonMax components.')
 
-        note('Creating rollback backup...')
+        note('Creating safe rollback backup...')
         backup_root = backup(home, userdata)
         note('Applying DragonMax V12...')
         apply_tree(root, home)
-
-        dlg.ok('DragonMax V12 Installed',
-               'Staging installation completed.\n\n'
-               'Fully exit Kodi, reopen it, then begin device testing.\n\n'
-               'Rollback backup: ' + backup_root)
+        dlg.ok('DragonMax V12 Installed', 'Staging installation completed.\n\nFully exit Kodi, reopen it, then begin device testing.\n\nRollback backup: ' + backup_root)
     except Exception as e:
         log(traceback.format_exc(), xbmc.LOGERROR)
         if backup_root:
@@ -232,7 +215,6 @@ def main():
                 rollback(home, backup_root)
                 dlg.ok('DragonMax Install Failed', str(e) + '\n\nRollback was applied.')
             except Exception as re:
-                log(traceback.format_exc(), xbmc.LOGERROR)
                 dlg.ok('DragonMax Install Failed', str(e) + '\n\nRollback also failed: ' + str(re))
         else:
             dlg.ok('DragonMax Install Failed', str(e))
@@ -268,32 +250,18 @@ def publish(root: Path, out: Path):
     compile(WIZARD_DEFAULT, 'default.py', 'exec')
     import xml.etree.ElementTree as ET
     ET.fromstring(addons)
-
     (out / 'addons.xml').write_text(addons, encoding='utf-8')
     (out / 'addons.xml.md5').write_text(hashlib.md5(addons.encode('utf-8')).hexdigest(), encoding='utf-8')
-
     repo_zip = zip_bytes('repository.dragonmax', {'addon.xml': REPO_ADDON})
     wizard_zip = zip_bytes('plugin.program.dragonmaxwizard', {'addon.xml': WIZARD_ADDON, 'default.py': WIZARD_DEFAULT})
-
-    (out / f'repository.dragonmax-{VERSION}.zip').write_bytes(repo_zip)
-    (out / f'plugin.program.dragonmaxwizard-{VERSION}.zip').write_bytes(wizard_zip)
-
-    repo_dir = out / 'repository.dragonmax'
-    wizard_dir = out / 'plugin.program.dragonmaxwizard'
-    repo_dir.mkdir(parents=True, exist_ok=True)
-    wizard_dir.mkdir(parents=True, exist_ok=True)
-    (repo_dir / f'repository.dragonmax-{VERSION}.zip').write_bytes(repo_zip)
-    (wizard_dir / f'plugin.program.dragonmaxwizard-{VERSION}.zip').write_bytes(wizard_zip)
-
-    for path in (
-        out / f'repository.dragonmax-{VERSION}.zip',
-        out / f'plugin.program.dragonmaxwizard-{VERSION}.zip',
-        repo_dir / f'repository.dragonmax-{VERSION}.zip',
-        wizard_dir / f'plugin.program.dragonmaxwizard-{VERSION}.zip',
-    ):
-        with zipfile.ZipFile(path) as z:
+    for addon_id, data in (('repository.dragonmax', repo_zip), ('plugin.program.dragonmaxwizard', wizard_zip)):
+        root_zip = out / f'{addon_id}-{VERSION}.zip'
+        addon_dir = out / addon_id
+        addon_dir.mkdir(parents=True, exist_ok=True)
+        root_zip.write_bytes(data)
+        (addon_dir / f'{addon_id}-{VERSION}.zip').write_bytes(data)
+        with zipfile.ZipFile(root_zip) as z:
             bad = z.testzip()
             if bad:
                 raise RuntimeError('Corrupt generated installer ZIP member: ' + bad)
-
-    print('DragonMax repository and wizard 4.0.3 artifacts generated, recursive backup bug fixed, Python compiled, and XML validated.')
+    print('DragonMax repository and wizard 4.0.4 generated; live Kodi database backup is safely skipped.')
