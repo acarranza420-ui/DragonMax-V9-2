@@ -1,30 +1,25 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <addons>
-  <addon id="repository.dragonmax" name="DragonMax Repository" version="4.0.0" provider-name="DragonMax RD">
+  <addon id="repository.dragonmax" name="DragonMax Repository" version="4.5.0" provider-name="DragonMax RD">
     <extension point="xbmc.addon.repository" name="DragonMax Repository">
       <dir minversion="21.0.0">
-        <info compressed="false">https://acarranza420-ui.github.io/DragonMax-V9-2/addons.xml</info>
-        <checksum>https://acarranza420-ui.github.io/DragonMax-V9-2/addons.xml.md5</checksum>
-        <datadir zip="true">https://acarranza420-ui.github.io/DragonMax-V9-2/</datadir>
+        <info compressed="false">https://dragonmax-v12-release.onrender.com/addons.xml</info>
+        <checksum>https://dragonmax-v12-release.onrender.com/addons.xml.md5</checksum>
+        <datadir zip="true">https://dragonmax-v12-release.onrender.com/</datadir>
       </dir>
     </extension>
     <extension point="xbmc.addon.metadata">
       <summary>DragonMax V12 Unified repository</summary>
-      <description>DragonMax V12 Unified repository for Kodi 21+ with manifest-driven installation, validation, backup, recovery, realms, and Fire TV Stick 4K Max tuning.</description>
+      <description>DragonMax V12 Unified repository for Kodi 21+.</description>
       <platform>all</platform>
     </extension>
   </addon>
-
-  <addon id="plugin.program.dragonmaxwizard" name="DragonMax Wizard" version="4.0.0" provider-name="DragonMax RD">
-    <requires>
-      <import addon="xbmc.python" version="3.0.0"/>
-    </requires>
-    <extension point="xbmc.python.script" library="default.py">
-      <provides>executable</provides>
-    </extension>
+  <addon id="plugin.program.dragonmaxwizard" name="DragonMax Wizard" version="4.5.0" provider-name="DragonMax RD">
+    <requires><import addon="xbmc.python" version="3.0.0"/></requires>
+    <extension point="xbmc.python.pluginsource" library="default.py"><provides>executable</provides></extension>
     <extension point="xbmc.addon.metadata">
-      <summary>DragonMax V12 Unified transactional installer</summary>
-      <description>Downloads, validates, backs up, stages, repairs, and applies DragonMax V12 Unified build payloads with safer failure handling.</description>
+      <summary>DragonMax V12 launch-candidate installer</summary>
+      <description>Protocol-4 installer with clean-runtime validation, dependency preflight, selective rollback, and Android-safe atomic writes.</description>
       <platform>all</platform>
     </extension>
   </addon>
