@@ -8,16 +8,18 @@ XML='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
 
 REPO=f'''{XML}\n<addon id="repository.dragonmax" name="DragonMax Repository" version="{VERSION}" provider-name="DragonMax RD"><extension point="xbmc.addon.repository" name="DragonMax Repository"><dir minversion="21.0.0"><info compressed="false">{HOST}addons.xml</info><checksum>{HOST}addons.xml.md5</checksum><datadir zip="true">{HOST}</datadir></dir></extension><extension point="xbmc.addon.metadata"><summary>DragonMax V12 Unified repository</summary><description>DragonMax V12 Unified repository for Kodi 21+.</description><platform>all</platform></extension></addon>'''
 
-ADDON=f'''{XML}\n<addon id="plugin.program.dragonmaxwizard" name="DragonMax Wizard" version="{VERSION}" provider-name="DragonMax RD"><requires><import addon="xbmc.python" version="3.0.0"/></requires><extension point="xbmc.python.pluginsource" library="default.py"><provides>executable</provides></extension><extension point="xbmc.addon.metadata"><summary>DragonMax V12 launch-candidate installer</summary><description>Protocol-4 installer with payload integrity checks, clean-runtime enforcement, selective rollback, dependency preflight, existing-skin preservation, and Android-safe atomic writes.</description><platform>all</platform></extension></addon>'''
+ADDON=f'''{XML}\n<addon id="plugin.program.dragonmaxwizard" name="DragonMax Wizard" version="{VERSION}" provider-name="DragonMax RD"><requires><import addon="xbmc.python" version="3.0.0"/></requires><extension point="xbmc.python.pluginsource" library="default.py"><provides>executable</provides></extension><extension point="xbmc.addon.metadata"><summary>DragonMax V12 launch-candidate installer</summary><description>Protocol-4 installer with clean-runtime verification, AuraMOD Omega dependency bootstrap, selective rollback, existing-skin preservation, and Android-safe atomic writes.</description><platform>all</platform></extension></addon>'''
 
 DEFAULT=r'''#!/usr/bin/env python3
 import hashlib,json,os,shutil,time,traceback,urllib.request,zipfile
+import xml.etree.ElementTree as ET
 import xbmc,xbmcaddon,xbmcgui,xbmcvfs
 HOST='https://dragonmax-v12-release.onrender.com/'; BUILD_JSON=HOST+'build.json'; ADDON_ID='plugin.program.dragonmaxwizard'; VERSION='4.5.0'; MIN_PROTOCOL=4
 ALLOWED=('addons/','userdata/','artwork/','audio/','startup/','dragonmax/'); META={'dragonmax_manifest.json','dragonmax/install_manifest.json'}
 PROTECTED=('userdata/Database/','userdata/Thumbnails/','userdata/temp/','addons/packages/','temp/','cache/','dragonmax_backups/'); PROTECTED_FILES={'userdata/guisettings.xml'}
 OWNED=('addons/service.dragonmax.voice/','userdata/addon_data/service.dragonmax.voice/','dragonmax/','artwork/','audio/','startup/')
 BACKUP_USERDATA=('userdata/keymaps/','userdata/advancedsettings.xml','userdata/addon_data/skin.auramod/','userdata/addon_data/script.autowidget/')
+BOOTSTRAP=('repository.auramod.aio','repository.jurialmunkey','repository.marcelveldt','script.colorbox')
 
 def log(m,l=xbmc.LOGINFO): xbmc.log('[DragonMaxWizard] '+str(m),l)
 def pu(p,n,m=''): p.update(int(max(0,min(100,n))),m)
@@ -86,22 +88,52 @@ def atomic(src,dst):
   try:
    if os.path.exists(tmp): os.remove(tmp)
   except OSError: pass
+def addon_installed(aid):
+ try: xbmcaddon.Addon(aid); return True
+ except Exception: return False
 def active_auramod(home): return os.path.isfile(os.path.join(home,'addons','skin.auramod','addon.xml'))
 def filter_device(home,fs):
- if not active_auramod(home): return fs
- return [(r,s) for r,s in fs if not r.startswith('addons/skin.auramod/')]
-def dependency_preflight(root,home):
- import xml.etree.ElementTree as ET
- skin=ET.parse(os.path.join(root,'addons','skin.auramod','addon.xml')).getroot(); missing=[]
+ out=[]
+ for r,s in fs:
+  if any(r.startswith('addons/'+aid+'/') for aid in BOOTSTRAP): continue
+  if active_auramod(home) and r.startswith('addons/skin.auramod/'): continue
+  out.append((r,s))
+ return out
+def required_skin_dependencies(root):
+ skin=ET.parse(os.path.join(root,'addons','skin.auramod','addon.xml')).getroot(); deps=[]
  req=skin.find('requires')
  if req is not None:
   for node in req.findall('import'):
    dep=node.attrib.get('addon',''); optional=node.attrib.get('optional','').lower()=='true'
-   if optional or not dep or dep.startswith('xbmc.'): continue
-   if os.path.isdir(os.path.join(root,'addons',dep)) or os.path.isdir(os.path.join(home,'addons',dep)): continue
-   try: xbmcaddon.Addon(dep)
-   except Exception: missing.append(dep)
- if missing: raise RuntimeError('Missing required AuraMOD dependencies before install: '+', '.join(sorted(set(missing))))
+   if optional or not dep or dep.startswith('xbmc.') or dep.startswith('kodi.'): continue
+   deps.append(dep)
+ return sorted(set(deps))
+def bootstrap_dependencies(root,home,p):
+ pu(p,56,'Preparing AuraMOD Omega dependencies')
+ created=[]
+ for aid in BOOTSTRAP:
+  srcroot=os.path.join(root,'addons',aid)
+  if not os.path.isfile(os.path.join(srcroot,'addon.xml')): raise RuntimeError('Dependency bootstrap addon missing from payload: '+aid)
+  for b,_,ns in os.walk(srcroot):
+   for n in ns:
+    src=os.path.join(b,n); rel=os.path.relpath(src,srcroot); dst=os.path.join(home,'addons',aid,rel)
+    if not os.path.exists(dst): created.append(dst)
+    atomic(src,dst)
+ xbmc.executebuiltin('UpdateLocalAddons'); xbmc.sleep(1500); xbmc.executebuiltin('UpdateAddonRepos'); xbmc.sleep(3500)
+ deps=required_skin_dependencies(root); missing=[d for d in deps if not addon_installed(d) and not os.path.isdir(os.path.join(home,'addons',d)) and not os.path.isdir(os.path.join(root,'addons',d))]
+ if missing:
+  pu(p,57,'Installing AuraMOD dependencies\n'+', '.join(missing[:3]))
+  for dep in missing: xbmc.executebuiltin('InstallAddon('+dep+')')
+  deadline=time.time()+120
+  while time.time()<deadline:
+   unresolved=[d for d in missing if not addon_installed(d) and not os.path.isdir(os.path.join(home,'addons',d))]
+   if not unresolved: break
+   if p.iscanceled(): raise RuntimeError('Installation cancelled during dependency setup')
+   xbmc.sleep(2000)
+  unresolved=[d for d in missing if not addon_installed(d) and not os.path.isdir(os.path.join(home,'addons',d))]
+  if unresolved: raise RuntimeError('AuraMOD dependency installation did not complete: '+', '.join(unresolved))
+ pu(p,58,'AuraMOD dependencies verified')
+ return created
 def preflight(home,fs):
  for top in sorted(set(r.split('/',1)[0] for r,_ in fs)):
   target=os.path.join(home,top); par=target if os.path.isdir(target) else home; q=os.path.join(par,'.dragonmax-write-probe')
@@ -118,7 +150,7 @@ def backup(home,fs,root,p):
    try: os.makedirs(os.path.dirname(b),exist_ok=True); shutil.copy2(d,b); originals.append((d,b))
    except (PermissionError,OSError) as e: log('Optional rollback backup skipped '+r+': '+str(e),xbmc.LOGWARNING)
   elif not os.path.exists(d): created.append(d)
-  if i==1 or i==total or i%100==0: pu(p,55+5*i/total,'Preparing selective rollback\n'+r[-70:])
+  if i==1 or i==total or i%100==0: pu(p,58+2*i/total,'Preparing selective rollback\n'+r[-70:])
  with open(os.path.join(root,'transaction.json'),'w',encoding='utf-8') as f: json.dump({'version':VERSION,'originals':originals,'created':created},f,indent=2)
  return originals,created
 def rollback(o,c):
@@ -148,22 +180,23 @@ def main():
  try: build=getjson(BUILD_JSON)['builds'][0]
  except Exception as e: dlg.ok('DragonMax Wizard','Could not load staging metadata.\n\n'+str(e)); return
  if int(build.get('install_protocol',0))<MIN_PROTOCOL: dlg.ok('DragonMax Wizard','Server payload has not passed the launch-candidate protocol gate.'); return
- if not build.get('ready',False) and not dlg.yesno('DragonMax V12 DEVICE VALIDATION','Launch-candidate package. Payload integrity, dependency closure, protected paths, clean runtime, fresh install, upgrade, and rollback simulations passed server-side.\n\nRun the Fire TV validation install?'): return
- home=xbmcvfs.translatePath('special://home/'); w=work(); zp=os.path.join(w,'dragonmax.zip'); ex=os.path.join(w,'extract'); br=os.path.join(profile(),'backups',time.strftime('%Y%m%d-%H%M%S')); o=[]; c=[]
+ if not build.get('ready',False) and not dlg.yesno('DragonMax V12 DEVICE VALIDATION','Launch-candidate package. The server has verified the clean runtime, AuraMOD Omega source, dependency repositories, payload integrity, fresh install, upgrade, and rollback simulations.\n\nRun the Fire TV validation install?'): return
+ home=xbmcvfs.translatePath('special://home/'); w=work(); zp=os.path.join(w,'dragonmax.zip'); ex=os.path.join(w,'extract'); br=os.path.join(profile(),'backups',time.strftime('%Y%m%d-%H%M%S')); o=[]; c=[]; bootstrap_created=[]
  try:
   p.create('DragonMax Wizard','Downloading DragonMax V12'); download(HOST+str(build['zip']).lstrip('/'),zp,p); pu(p,20,'Validating package')
   if os.path.getsize(zp)<float(build.get('minimum_size_mb',60))*1048576: raise RuntimeError('Downloaded payload too small')
   if not build.get('sha256') or sha(zp).lower()!=str(build['sha256']).lower(): raise RuntimeError('Payload checksum mismatch')
   os.makedirs(ex,exist_ok=True); extract(zp,ex,p); roots=[os.path.join(ex,n) for n in os.listdir(ex) if os.path.isdir(os.path.join(ex,n))]
   if len(roots)!=1: raise RuntimeError('Unexpected payload layout')
-  root=roots[0]; verify(root,p); dependency_preflight(root,home); fs=filter_device(home,files(root))
+  root=roots[0]; verify(root,p); bootstrap_created=bootstrap_dependencies(root,home,p); fs=filter_device(home,files(root))
   if not fs: raise RuntimeError('No installable files')
-  preflight(home,fs); o,c=backup(home,fs,br,p); apply(home,fs,p); pu(p,100,'Installation complete'); p.close(); dlg.ok('DragonMax V12 Installed','Fire TV validation install completed.\n\nFully exit Kodi and reopen it.\n\nSelective rollback data: '+br)
+  preflight(home,fs); o,c=backup(home,fs,br,p); c.extend(bootstrap_created); apply(home,fs,p); pu(p,100,'Installation complete'); p.close(); dlg.ok('DragonMax V12 Installed','Fire TV validation install completed.\n\nFully exit Kodi and reopen it.\n\nSelective rollback data: '+br)
  except Exception as e:
   log(traceback.format_exc(),xbmc.LOGERROR)
   try:p.close()
   except Exception:pass
-  if o or c: rollback(o,c); dlg.ok('DragonMax Install Failed',str(e)+'\n\nSelective rollback was applied.')
+  if o or c or bootstrap_created:
+   rollback(o,c+bootstrap_created if not c else c); dlg.ok('DragonMax Install Failed',str(e)+'\n\nSelective rollback was applied. Dependency addons installed by Kodi may remain available for reuse.')
   else: dlg.ok('DragonMax Install Failed',str(e)+'\n\nNo DragonMax files were applied.')
  finally: shutil.rmtree(w,ignore_errors=True)
 try: main()
@@ -181,17 +214,17 @@ def z(folder,files):
 def frag(x): return x.replace(XML,'',1).strip()
 def gates(s):
  tree=ast.parse(s)
- for token in ['MIN_PROTOCOL=4','dependency_preflight','filter_device','BACKUP_USERDATA','atomic','rollback','preflight']:
+ for token in ['MIN_PROTOCOL=4','bootstrap_dependencies','InstallAddon(','UpdateAddonRepos','UpdateLocalAddons','BOOTSTRAP','filter_device','BACKUP_USERDATA','atomic','rollback','preflight']:
   if token not in s: raise RuntimeError('Installer gate missing '+token)
  for node in ast.walk(tree):
   if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr in ('create','update') and isinstance(node.func.value,ast.Name) and node.func.value.id=='p' and len(node.args)>2: raise RuntimeError('Kodi DialogProgress API arity regression')
 def publish(root:Path,out:Path):
  addons=XML+'\n<addons>\n'+frag(REPO)+'\n'+frag(ADDON)+'\n</addons>\n'; compile(DEFAULT,'default.py','exec'); gates(DEFAULT)
- import xml.etree.ElementTree as ET; ET.fromstring(addons)
+ ET.fromstring(addons)
  (out/'addons.xml').write_text(addons,encoding='utf-8'); (out/'addons.xml.md5').write_text(hashlib.md5(addons.encode()).hexdigest())
  rz=z('repository.dragonmax',{'addon.xml':REPO}); wz=z('plugin.program.dragonmaxwizard',{'addon.xml':ADDON,'default.py':DEFAULT})
  for aid,data in [('repository.dragonmax',rz),('plugin.program.dragonmaxwizard',wz)]:
   d=out/aid; d.mkdir(parents=True,exist_ok=True); (out/f'{aid}-{VERSION}.zip').write_bytes(data); (d/f'{aid}-{VERSION}.zip').write_bytes(data)
   with zipfile.ZipFile(out/f'{aid}-{VERSION}.zip') as q:
    if q.testzip(): raise RuntimeError('Corrupt generated installer ZIP')
- print('DragonMax Wizard 4.5.0 generated; protocol-4 launch-candidate gates passed.')
+ print('DragonMax Wizard 4.5.0 generated; protocol-4 Omega dependency-bootstrap gates passed.')
