@@ -1,19 +1,19 @@
 {
-  "schema": 3,
+  "schema": 4,
   "repository": "DragonMax-V9-2",
   "base_url": "https://dragonmax-v12-release.onrender.com/",
   "release_channel": "staging",
   "builds": [
     {
       "name": "DragonMax V12 Unified",
-      "version": "4.0.0",
-      "zip": "builds/DragonMax_V12_Unified_Build_Content-4.0.0.zip",
+      "version": "4.5.0",
+      "zip": "builds/DragonMax_V12_Unified_Build_Content-4.5.0.zip",
       "minimum_size_mb": 60,
       "ideal_size_mb": 280,
-      "last_built_size_mb": 94.65,
       "ready": false,
+      "install_protocol": 4,
       "target_device": "Fire TV Stick 4K Max",
-      "merge_policy": "V9.2 baseline with V11/V12 overlay; newer layer wins duplicate paths",
+      "merge_policy": "V9.2 runtime assets with V11/V12 overlay; device-specific userdata and development metadata discarded",
       "capabilities": [
         "AuraMOD home",
         "Dragon Portal",
@@ -32,7 +32,18 @@
         "visual consistency",
         "package size"
       ],
-      "notes": "Render staging host is now canonical for the V12 payload. 280 MiB is an ideal packaging target, not a launch gate. Keep ready=false until anonymous payload access, repository/wizard flow, clean-install tests, and Fire TV stability checks pass."
+      "required_server_gates": [
+        "clean runtime payload",
+        "protected Kodi paths absent",
+        "development metadata absent",
+        "critical addon dependency closure",
+        "critical Python 3 compile",
+        "fresh install simulation",
+        "existing AuraMOD upgrade simulation",
+        "rollback simulation",
+        "repository/wizard ZIP integrity"
+      ],
+      "notes": "4.5.0 is a launch candidate. Keep ready=false until the protocol-4 server gates pass and the Fire TV validation install, restart, navigation, playback, realms, Dragon Portal, and voice-service checks pass on real hardware."
     }
   ]
 }
