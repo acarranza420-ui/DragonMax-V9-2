@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import hashlib, json, math, os, shutil, struct, urllib.request, wave, zipfile, zlib
+import hashlib, json, math, shutil, struct, urllib.request, wave, zipfile, zlib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 import repo_release
@@ -16,7 +16,21 @@ RUNTIME_ROOTS = ('addons', 'userdata', 'artwork', 'audio', 'startup', 'dragonmax
 DEV_DIR_NAMES = {'.git', '.github', '.idea', '.vscode', '__pycache__', 'tests', 'test', 'docs', 'doc'}
 DEV_FILE_SUFFIXES = ('.pyc', '.pyo', '.log', '.tmp', '.old')
 CRITICAL_ADDONS = {'skin.auramod', 'service.dragonmax.voice'}
-CORE_DEP_PREFIXES = ('xbmc.',)
+CORE_DEP_PREFIXES = ('xbmc.', 'kodi.')
+AURAMOD_COMMIT = '8038ef9b2575910b3f155c3256d3b5669c887e39'
+AURAMOD_MIN_VERSION = (2, 0, 4)
+AURAMOD_MIN_GUI = (5, 17, 0)
+BOOTSTRAP_PACKAGES = {
+    'repository.auramod.aio': 'https://raw.githubusercontent.com/SerpentDrago/repository.auramod.aio/main/repo/omega/zips/repository.auramod.aio/repository.auramod.aio-1.2.zip',
+    'repository.jurialmunkey': 'https://raw.githubusercontent.com/SerpentDrago/repository.auramod.aio/main/repo/omega/zips/repository.jurialmunkey/repository.jurialmunkey-3.4.zip',
+    'repository.marcelveldt': 'https://raw.githubusercontent.com/SerpentDrago/repository.auramod.aio/main/repo/omega/zips/repository.marcelveldt/repository.marcelveldt-1.0.3.zip',
+    'script.colorbox': 'https://raw.githubusercontent.com/SerpentDrago/repository.auramod.aio/main/repo/omega/zips/script.colorbox/script.colorbox-2.0.8.zip',
+}
+DEPENDENCY_INDEX_URLS = (
+    'https://raw.githubusercontent.com/SerpentDrago/repository.auramod.aio/main/repo/omega/zips/addons.xml',
+    'https://raw.githubusercontent.com/jurialmunkey/repository.jurialmunkey/master/omega/zips/addons.xml',
+    'https://raw.githubusercontent.com/kodi-community-addons/repository.marcelveldt/master/matrix/addons.xml',
+)
 
 REALMS = [
     ('dragon_order','Dragon Order',(160,55,20)),
@@ -46,6 +60,12 @@ def fetch(url, dest):
     req = urllib.request.Request(url, headers={'User-Agent':f'DragonMax-V12-Builder/{RELEASE_VERSION}'})
     with urllib.request.urlopen(req, timeout=120) as r, open(dest,'wb') as f:
         shutil.copyfileobj(r,f)
+
+
+def fetch_text(url):
+    req = urllib.request.Request(url, headers={'User-Agent':f'DragonMax-V12-Builder/{RELEASE_VERSION}'})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return r.read().decode('utf-8')
 
 
 def block_noise(seed, bx, by, limit):
@@ -149,7 +169,7 @@ def prune_kodi21_incompatible_addons():
     addons=STAGE/'addons'
     if not addons.exists(): return
     for d in list(addons.iterdir()):
-        if not d.is_dir() or d.name in CRITICAL_ADDONS: continue
+        if not d.is_dir() or d.name in CRITICAL_ADDONS or d.name in BOOTSTRAP_PACKAGES: continue
         try: meta=addon_metadata(d)
         except Exception:
             shutil.rmtree(d,ignore_errors=True); continue
@@ -174,14 +194,45 @@ def sanitize_stage():
             except OSError:pass
 
 
+def extract_addon_zip(archive, expected_id):
+    tmp=STAGE.parent/('bootstrap_'+expected_id.replace('.','_'))
+    shutil.rmtree(tmp,ignore_errors=True); tmp.mkdir(parents=True,exist_ok=True)
+    with zipfile.ZipFile(archive) as z:
+        bad=z.testzip()
+        if bad: raise RuntimeError(f'Corrupt bootstrap package {expected_id}: {bad}')
+        z.extractall(tmp)
+    candidates=[]
+    for p in [tmp] + [d for d in tmp.rglob('*') if d.is_dir()]:
+        xml=p/'addon.xml'
+        if xml.exists():
+            try:
+                if ET.parse(xml).getroot().attrib.get('id') == expected_id: candidates.append(p)
+            except Exception: pass
+    if not candidates: raise RuntimeError('Bootstrap ZIP did not contain expected addon '+expected_id)
+    candidates.sort(key=lambda p:len(p.parts)); src=candidates[0]; dst=STAGE/'addons'/expected_id
+    shutil.rmtree(dst,ignore_errors=True); shutil.copytree(src,dst,copy_function=shutil.copyfile)
+
+
 def install_auramod():
-    arc = STAGE.parent/'auramod.zip'; fetch('https://codeload.github.com/jojobrogess/skin.auramod/zip/refs/heads/Matrix', arc)
-    tmp = STAGE.parent/'auramod_extract'
+    arc=STAGE.parent/'auramod_omega.zip'
+    fetch(f'https://codeload.github.com/SerpentDrago/skin.auramod/zip/{AURAMOD_COMMIT}',arc)
+    tmp=STAGE.parent/'auramod_extract'; shutil.rmtree(tmp,ignore_errors=True); tmp.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(arc) as z: z.extractall(tmp)
     roots=[p for p in tmp.iterdir() if p.is_dir()]
-    if not roots: raise RuntimeError('AuraMOD archive extracted without a root folder')
+    if not roots: raise RuntimeError('AuraMOD Omega archive extracted without a root folder')
     dst=STAGE/'addons'/'skin.auramod'; shutil.rmtree(dst,ignore_errors=True); shutil.copytree(roots[0],dst,copy_function=shutil.copyfile)
+    meta=addon_metadata(dst)
+    if not meta or version_tuple(meta['version']) < AURAMOD_MIN_VERSION: raise RuntimeError('AuraMOD source is not Omega 2.0.4+')
+    gui=[version_tuple(ver) for dep,ver,opt in meta['imports'] if dep=='xbmc.gui' and not opt]
+    if not gui or gui[0] < AURAMOD_MIN_GUI: raise RuntimeError('AuraMOD source does not declare Kodi 21 xbmc.gui 5.17+')
     prune_development_debris()
+    print('AuraMOD Omega validated:',meta['version'],'commit',AURAMOD_COMMIT)
+
+
+def install_bootstrap_addons():
+    for addon_id,url in BOOTSTRAP_PACKAGES.items():
+        arc=STAGE.parent/(addon_id+'.zip'); fetch(url,arc); extract_addon_zip(arc,addon_id)
+    print('Dependency bootstrap addons staged:',', '.join(sorted(BOOTSTRAP_PACKAGES)))
 
 
 def install_dragonmax_addons():
@@ -222,7 +273,7 @@ def generate_userdata():
 
 
 def manifest():
-    data={'name':'DragonMax V12 Unified','version':RELEASE_VERSION,'install_protocol':INSTALL_PROTOCOL,'merge_policy':'V9.2 runtime assets + V11/V12 overlay; device userdata and dev metadata discarded','target_device':'Fire TV Stick 4K Max','realms':[n for s,n,t in REALMS],'release_priority':['quality','stability','smooth_use','visual_consistency','package_size'],'capabilities':['Dragon Voice','Dragon AI intent engine','persistent explicit memory','recent conversation context','allow-listed reversible self-repair','repair history','authenticated LAN command bridge','safe confirmations','remote-control fallback']}
+    data={'name':'DragonMax V12 Unified','version':RELEASE_VERSION,'install_protocol':INSTALL_PROTOCOL,'merge_policy':'V9.2 runtime assets + V11/V12 overlay; device userdata and dev metadata discarded','target_device':'Fire TV Stick 4K Max','auramod':{'version':'2.0.4+','commit':AURAMOD_COMMIT,'target':'Kodi 21 Omega'},'realms':[n for s,n,t in REALMS],'release_priority':['quality','stability','smooth_use','visual_consistency','package_size'],'capabilities':['Dragon Voice','Dragon AI intent engine','persistent explicit memory','recent conversation context','allow-listed reversible self-repair','repair history','authenticated LAN command bridge','safe confirmations','remote-control fallback']}
     (STAGE/'dragonmax_manifest.json').write_text(json.dumps(data,indent=2),encoding='utf-8')
 
 
@@ -238,6 +289,19 @@ def payload_file_manifest():
     target.write_text(json.dumps({'schema':3,'install_protocol':INSTALL_PROTOCOL,'version':RELEASE_VERSION,'files':entries},indent=2),encoding='utf-8')
 
 
+def dependency_indexes():
+    available=set()
+    for url in DEPENDENCY_INDEX_URLS:
+        try:
+            root=ET.fromstring(fetch_text(url))
+            for node in root.findall('addon'):
+                aid=node.attrib.get('id')
+                if aid: available.add(aid)
+        except Exception as e:
+            raise RuntimeError('Could not validate dependency repository index '+url+': '+str(e))
+    return available
+
+
 def validate_addons_and_dependencies():
     addons=STAGE/'addons'
     if not addons.exists(): raise RuntimeError('Payload addons directory missing')
@@ -249,14 +313,23 @@ def validate_addons_and_dependencies():
         if meta['id'] != d.name: invalid.append(d.name+': addon id '+meta['id']+' does not match directory')
         metas[meta['id']]=meta
     if invalid: raise RuntimeError('Invalid Kodi addons: '+'; '.join(invalid[:12]))
+
+    skin=metas.get('skin.auramod')
+    if not skin or version_tuple(skin['version']) < AURAMOD_MIN_VERSION: raise RuntimeError('Kodi 21 AuraMOD 2.0.4+ not staged')
+    gui=[version_tuple(ver) for dep,ver,opt in skin['imports'] if dep=='xbmc.gui' and not opt]
+    if not gui or gui[0] < AURAMOD_MIN_GUI: raise RuntimeError('AuraMOD does not target Kodi 21 xbmc.gui 5.17+')
+
+    available_remote=dependency_indexes()
     missing=[]
     for aid in CRITICAL_ADDONS:
         meta=metas.get(aid)
         if not meta: missing.append(aid+': addon missing'); continue
         for dep,_ver,optional in meta['imports']:
             if optional or not dep or dep.startswith(CORE_DEP_PREFIXES): continue
-            if dep not in metas: missing.append(aid+' requires '+dep)
-    if missing: raise RuntimeError('Launch-critical dependency closure failed: '+'; '.join(missing))
+            if dep in metas or dep in available_remote: continue
+            missing.append(aid+' requires unresolved '+dep)
+    if missing: raise RuntimeError('Launch-critical dependency resolution failed: '+'; '.join(missing))
+    print('Launch-critical dependencies are bundled or resolvable through validated repositories.')
 
 
 def validate_python3_critical():
@@ -295,10 +368,14 @@ def simulate_install(existing_auramod=False, rollback=False):
             b=backup/'originals'/rel; b.parent.mkdir(parents=True,exist_ok=True); shutil.copyfile(dst,b); originals.append((dst,b))
         elif not dst.exists(): created.append(dst)
         dst.parent.mkdir(parents=True,exist_ok=True); shutil.copyfile(src,dst)
+    for aid in BOOTSTRAP_PACKAGES:
+        if not (home/'addons'/aid/'addon.xml').exists(): raise RuntimeError('Simulated install missing dependency bootstrap addon '+aid)
     if not (home/'addons'/'service.dragonmax.voice'/'addon.xml').exists(): raise RuntimeError('Simulated install missing Dragon Voice')
     if not (home/'dragonmax'/'config'/'voice.json').exists(): raise RuntimeError('Simulated install missing DragonMax config')
     if existing_auramod and (home/'addons'/'skin.auramod'/'addon.xml').read_text(encoding='utf-8') != '<sentinel/>': raise RuntimeError('Existing AuraMOD was overwritten in simulation')
-    if not existing_auramod and not (home/'addons'/'skin.auramod'/'addon.xml').exists(): raise RuntimeError('Fresh install simulation missing AuraMOD')
+    if not existing_auramod:
+        meta=addon_metadata(home/'addons'/'skin.auramod')
+        if not meta or version_tuple(meta['version']) < AURAMOD_MIN_VERSION: raise RuntimeError('Fresh install simulation missing AuraMOD Omega')
     if rollback:
         for dst in reversed(created):
             try: dst.unlink()
@@ -311,6 +388,7 @@ def simulate_install(existing_auramod=False, rollback=False):
 
 def validate_quality():
     required=[STAGE/'addons'/'skin.auramod'/'addon.xml',STAGE/'addons'/'service.dragonmax.voice'/'addon.xml',STAGE/'addons'/'service.dragonmax.voice'/'service.py',STAGE/'addons'/'service.dragonmax.voice'/'dragon_memory.py',STAGE/'addons'/'service.dragonmax.voice'/'self_repair.py',STAGE/'userdata',STAGE/'dragonmax'/'config'/'menus.json',STAGE/'dragonmax'/'config'/'widgets.json',STAGE/'dragonmax'/'config'/'realms.json',STAGE/'dragonmax'/'config'/'performance.json',STAGE/'dragonmax'/'config'/'voice.json',STAGE/'dragonmax'/'install_manifest.json',STAGE/'startup'/'dragonmax_static_splash.png']
+    required += [STAGE/'addons'/aid/'addon.xml' for aid in BOOTSTRAP_PACKAGES]
     missing=[str(p.relative_to(STAGE)) for p in required if not p.exists()]
     if missing: raise RuntimeError('Missing required V12 content: '+', '.join(missing))
     for rel in UNSAFE_STAGE_DIRS:
@@ -326,7 +404,7 @@ def validate_quality():
     validate_addons_and_dependencies(); validate_python3_critical()
     simulate_install(existing_auramod=False, rollback=True)
     simulate_install(existing_auramod=True, rollback=True)
-    print('DragonMax launch simulations passed: fresh install, existing AuraMOD, rollback restoration.')
+    print('DragonMax launch simulations passed: fresh install, existing AuraMOD, bootstrap repos, rollback restoration.')
 
 
 def write_zip():
@@ -352,7 +430,8 @@ def make_zip():
     with zipfile.ZipFile(BUILD) as z:
         bad=z.testzip()
         if bad: raise RuntimeError('Corrupt ZIP member: '+bad)
-        names=z.namelist(); checks={'userdata':any('/userdata/' in '/'+n for n in names),'AuraMOD':any('/addons/skin.auramod/' in '/'+n for n in names),'Dragon Voice':any('/addons/service.dragonmax.voice/' in '/'+n for n in names),'Install manifest':any(n.endswith('/dragonmax/install_manifest.json') for n in names)}
+        names=z.namelist(); checks={'userdata':any('/userdata/' in '/'+n for n in names),'AuraMOD Omega':any('/addons/skin.auramod/addon.xml' in '/'+n for n in names),'Dragon Voice':any('/addons/service.dragonmax.voice/' in '/'+n for n in names),'Install manifest':any(n.endswith('/dragonmax/install_manifest.json') for n in names)}
+        for aid in BOOTSTRAP_PACKAGES: checks['bootstrap '+aid]=any(('/addons/'+aid+'/addon.xml') in '/'+n for n in names)
         failed=[name for name,ok in checks.items() if not ok]
         if failed: raise RuntimeError('ZIP missing required content: '+', '.join(failed))
         if any('/.github/' in '/'+n or '/.git/' in '/'+n for n in names): raise RuntimeError('Development metadata present in release ZIP')
@@ -370,11 +449,13 @@ def publish_repo_files():
     build['sha256']=sha256_file(BUILD)
     build['install_protocol']=INSTALL_PROTOCOL
     build['protected_runtime_paths']=['userdata/Database','userdata/Thumbnails','userdata/temp','addons/packages','userdata/guisettings.xml']
-    build['payload_policy']='clean runtime image; no inherited device userdata; no repository development metadata; launch-critical dependency closure enforced; fresh/existing-skin/rollback simulations passed'
+    build['payload_policy']='clean runtime image; AuraMOD Omega 2.0.4 exact commit; bootstrap repositories bundled; no inherited device userdata; no repository development metadata; dependency indexes verified; fresh/existing-skin/rollback simulations passed'
+    build['auramod_version']='2.0.4'
+    build['auramod_commit']=AURAMOD_COMMIT
     (OUT/'build.json').write_text(json.dumps(meta,indent=2),encoding='utf-8')
 
 
 def main():
-    clean(); copy_legacy(); reset_userdata(); sanitize_stage(); install_auramod(); install_dragonmax_addons(); generate_media(); generate_userdata(); sanitize_stage(); manifest(); payload_file_manifest(); make_zip(); publish_repo_files(); repo_release.publish(ROOT, OUT); print('DragonMax V12 launch-candidate distribution complete:',BUILD)
+    clean(); copy_legacy(); reset_userdata(); sanitize_stage(); install_auramod(); install_bootstrap_addons(); install_dragonmax_addons(); generate_media(); generate_userdata(); sanitize_stage(); manifest(); payload_file_manifest(); make_zip(); publish_repo_files(); repo_release.publish(ROOT, OUT); print('DragonMax V12 launch-candidate distribution complete:',BUILD)
 
 if __name__=='__main__': main()
