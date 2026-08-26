@@ -5,7 +5,7 @@ import io
 import zipfile
 from pathlib import Path
 
-VERSION = '4.2.1'
+VERSION = '4.3.0'
 HOST = 'https://dragonmax-v12-release.onrender.com/'
 XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
 
@@ -32,7 +32,7 @@ WIZARD_ADDON = f'''{XML_DECL}
   <extension point="xbmc.python.pluginsource" library="default.py"><provides>executable</provides></extension>
   <extension point="xbmc.addon.metadata">
     <summary>DragonMax V12 guarded transactional installer</summary>
-    <description>Verifies the full payload, installs only allowlisted Kodi roots, safely ignores legacy wrapper debris, preflights destinations, and rolls back failed applies.</description>
+    <description>Verifies the payload, skips legacy debris, repairs stale DragonMax-owned addon permission traps, atomically replaces files, preflights destinations, and rolls back safe targets.</description>
     <platform>all</platform>
   </extension>
 </addon>
@@ -55,7 +55,7 @@ import xbmcvfs
 HOST = 'https://dragonmax-v12-release.onrender.com/'
 BUILD_JSON = HOST + 'build.json'
 ADDON_ID = 'plugin.program.dragonmaxwizard'
-VERSION = '4.2.1'
+VERSION = '4.3.0'
 
 ALLOWED_ROOTS = ('addons/', 'userdata/', 'artwork/', 'audio/', 'startup/', 'dragonmax/')
 METADATA_ONLY = {'dragonmax_manifest.json', 'dragonmax/install_manifest.json'}
@@ -64,6 +64,14 @@ PROTECTED_PREFIXES = (
     'addons/packages/', 'temp/', 'cache/', 'dragonmax_backups/',
 )
 PROTECTED_FILES = {'userdata/guisettings.xml'}
+# These namespaces are generated and owned by DragonMax itself. If a stale file
+# from a previous failed install cannot be read for backup, it is safe to replace
+# it rather than abort the entire build before launch.
+OWNED_REPLACEABLE_PREFIXES = (
+    'addons/service.dragonmax.voice/',
+    'userdata/addon_data/service.dragonmax.voice/',
+    'dragonmax/',
+)
 
 
 def log(msg, level=xbmc.LOGINFO):
@@ -85,6 +93,11 @@ def normalized(rel):
 def protected(rel):
     rel = normalized(rel)
     return rel in PROTECTED_FILES or any(rel.startswith(p) for p in PROTECTED_PREFIXES)
+
+
+def owned_replaceable(rel):
+    rel = normalized(rel)
+    return any(rel.startswith(p) for p in OWNED_REPLACEABLE_PREFIXES)
 
 
 def installable(rel):
@@ -225,7 +238,7 @@ def preflight_destinations(home, files):
 
 
 def backup_targets(home, files, backup_root, progress):
-    originals, created = [], []
+    originals, created, replace_without_backup = [], [], []
     total = max(1, len(files))
     for i, (rel, _src) in enumerate(files, 1):
         dst = os.path.join(home, rel.replace('/', os.sep))
@@ -236,13 +249,17 @@ def backup_targets(home, files, backup_root, progress):
                 shutil.copy2(dst, backup)
                 originals.append((dst, backup))
             except (PermissionError, OSError) as e:
-                raise RuntimeError('Cannot safely back up target before overwrite: %s (%s)' % (rel, e))
+                if owned_replaceable(rel):
+                    replace_without_backup.append(dst)
+                    log('Replacing stale DragonMax-owned file without backup: %s (%s)' % (rel, e), xbmc.LOGWARNING)
+                else:
+                    raise RuntimeError('Cannot safely back up target before overwrite: %s (%s)' % (rel, e))
         elif not os.path.exists(dst):
             created.append(dst)
         if i == 1 or i == total or i % 50 == 0:
             progress_update(progress, 55 + (5 * i / total), 'Preparing rollback set\n' + rel[-70:])
     with open(os.path.join(backup_root, 'transaction.json'), 'w', encoding='utf-8') as f:
-        json.dump({'version': VERSION, 'created': created, 'originals': originals}, f, indent=2)
+        json.dump({'version': VERSION, 'created': created, 'originals': originals, 'replace_without_backup': replace_without_backup}, f, indent=2)
     return originals, created
 
 
@@ -256,9 +273,30 @@ def rollback_transaction(originals, created):
     for dst, backup in originals:
         try:
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copy2(backup, dst)
+            atomic_replace(backup, dst)
         except OSError as e:
             log('Rollback restore failed for %s: %s' % (dst, e), xbmc.LOGERROR)
+
+
+def atomic_replace(src, dst):
+    parent = os.path.dirname(dst)
+    os.makedirs(parent, exist_ok=True)
+    tmp = os.path.join(parent, '.dragonmax-new-' + os.path.basename(dst))
+    try:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        shutil.copyfile(src, tmp)
+        try:
+            os.chmod(tmp, 0o644)
+        except OSError:
+            pass
+        os.replace(tmp, dst)
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
 
 
 def apply_files(home, files, progress):
@@ -267,8 +305,22 @@ def apply_files(home, files, progress):
         if progress.iscanceled():
             raise RuntimeError('Installation cancelled before completion.')
         dst = os.path.join(home, rel.replace('/', os.sep))
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copy2(src, dst)
+        try:
+            atomic_replace(src, dst)
+        except (PermissionError, OSError) as e:
+            if owned_replaceable(rel):
+                # A stale DragonMax-owned file can sometimes be individually locked
+                # even when its parent directory is writable. Remove it and retry.
+                try:
+                    os.remove(dst)
+                except OSError:
+                    pass
+                try:
+                    atomic_replace(src, dst)
+                except Exception as e2:
+                    raise RuntimeError('Cannot repair DragonMax-owned target %s (%s)' % (rel, e2))
+            else:
+                raise RuntimeError('Cannot install target %s (%s)' % (rel, e))
         if i == 1 or i == total or i % 25 == 0:
             progress_update(progress, 60 + (40 * i / total), 'Applying DragonMax V12\n' + rel[-70:])
 
@@ -290,7 +342,7 @@ def main():
 
     if not build.get('ready', False) and not dlg.yesno(
         'DragonMax V12 STAGING TEST',
-        'This installer verifies the entire payload, installs only approved Kodi roots, safely skips legacy wrapper debris, preflights writes, backs up touched files, and rolls back failed applies.\n\nInstall now?'
+        'This installer verifies the payload, skips legacy debris, repairs stale DragonMax-owned addon files, atomically applies approved Kodi roots, preflights writes, and rolls back safe targets.\n\nInstall now?'
     ):
         return
 
@@ -371,7 +423,7 @@ def main():
             pass
         if originals or created:
             rollback_transaction(originals, created)
-            dlg.ok('DragonMax Install Failed', str(e) + '\n\nAll changes made by this attempt were rolled back.')
+            dlg.ok('DragonMax Install Failed', str(e) + '\n\nAll safely backed-up changes were rolled back.')
         else:
             dlg.ok('DragonMax Install Failed', str(e) + '\n\nNo DragonMax files were applied.')
     finally:
@@ -407,7 +459,11 @@ def validate_wizard_static_gates(source):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             if node.func.attr in ('create', 'update') and isinstance(node.func.value, ast.Name) and node.func.value.id == 'progress' and len(node.args) > 2:
                 raise RuntimeError('Kodi DialogProgress API gate failed: %s called with %d positional args' % (node.func.attr, len(node.args)))
-    required = ['ALLOWED_ROOTS', 'METADATA_ONLY', 'preflight_destinations', 'safe_extract', 'rollback_transaction', 'skipped = verify_install_manifest']
+    required = [
+        'ALLOWED_ROOTS', 'METADATA_ONLY', 'OWNED_REPLACEABLE_PREFIXES',
+        'preflight_destinations', 'safe_extract', 'rollback_transaction',
+        'atomic_replace', 'owned_replaceable', 'skipped = verify_install_manifest'
+    ]
     for token in required:
         if token not in source:
             raise RuntimeError('Installer safety gate missing: ' + token)
@@ -435,4 +491,4 @@ def publish(root: Path, out: Path):
             bad = z.testzip()
             if bad:
                 raise RuntimeError('Corrupt generated installer ZIP member: ' + bad)
-    print('DragonMax repository and wizard 4.2.1 generated; legacy wrapper skip and Superman gates passed.')
+    print('DragonMax repository and wizard 4.3.0 generated; owned-addon permission repair and atomic-replace gates passed.')
