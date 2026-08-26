@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 import repo_release_v45 as _r
 
+# Harden the generated wizard without duplicating its full source in the build
+# entrypoint. The base wizard remains versioned in repo_release_v45.py; this shim
+# injects launch-only finalization and bootstrap behavior, then re-exports publish.
+
+_boot_old = "xbmc.executebuiltin('UpdateLocalAddons'); xbmc.sleep(1500); xbmc.executebuiltin('UpdateAddonRepos'); xbmc.sleep(3500)"
+_boot_new = "xbmc.executebuiltin('UpdateLocalAddons'); xbmc.sleep(1500); [xbmc.executebuiltin('EnableAddon('+aid+')') for aid in BOOTSTRAP]; xbmc.sleep(1000); xbmc.executebuiltin('UpdateAddonRepos'); xbmc.sleep(3500)"
+if _boot_old not in _r.DEFAULT:
+    raise RuntimeError('DragonMax dependency-repository bootstrap injection point not found')
+_r.DEFAULT = _r.DEFAULT.replace(_boot_old, _boot_new, 1)
+
 _FINALIZER = r'''
 def finalize_addons():
     # Register the files we just applied without shipping or editing Kodi's live
@@ -26,19 +36,19 @@ if _old not in _r.DEFAULT:
     raise RuntimeError('DragonMax finalizer injection point not found')
 _r.DEFAULT = _r.DEFAULT.replace(_old, _new, 1)
 
-# Make the generated-installer gate fail if this launch finalizer disappears.
-_old_gates = "'UpdateLocalAddons','BOOTSTRAP'"
-_new_gates = "'UpdateLocalAddons','EnableAddon(service.dragonmax.voice)','EnableAddon(skin.auramod)','pending_skin_activation.json','BOOTSTRAP'"
-if _old_gates not in _r.DEFAULT:
-    # The gate source is Python outside DEFAULT, so validate it in this shim too.
-    pass
-
 _original_gates = _r.gates
 def gates(source):
     _original_gates(source)
-    for token in ('finalize_addons','EnableAddon(service.dragonmax.voice)','EnableAddon(skin.auramod)','pending_skin_activation.json'):
+    required = (
+        'finalize_addons',
+        'EnableAddon(service.dragonmax.voice)',
+        'EnableAddon(skin.auramod)',
+        'EnableAddon('+"'"+'+aid+'+"'"+')',
+        'pending_skin_activation.json',
+    )
+    for token in required:
         if token not in source:
-            raise RuntimeError('Installer finalization gate missing '+token)
+            raise RuntimeError('Installer finalization/bootstrap gate missing '+token)
 _r.gates = gates
 
 from repo_release_v45 import *
