@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import hashlib, json, math, shutil, struct, urllib.request, wave, zipfile, zlib
+import hashlib, json, math, os, shutil, struct, urllib.request, wave, zipfile, zlib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 import repo_release
@@ -7,13 +7,16 @@ import repo_release
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT / 'public'
 STAGE = ROOT / '.v12_stage' / 'DragonMax_V12_Unified_Build_Content'
-BUILD = OUT / 'builds' / 'DragonMax_V12_Unified_Build_Content-4.0.0.zip'
+RELEASE_VERSION = '4.5.0'
+BUILD = OUT / 'builds' / f'DragonMax_V12_Unified_Build_Content-{RELEASE_VERSION}.zip'
 IDEAL_SIZE = 280 * 1024 * 1024
 SOFT_MAX = 320 * 1024 * 1024
-INSTALL_PROTOCOL = 3
+INSTALL_PROTOCOL = 4
 RUNTIME_ROOTS = ('addons', 'userdata', 'artwork', 'audio', 'startup', 'dragonmax')
 DEV_DIR_NAMES = {'.git', '.github', '.idea', '.vscode', '__pycache__', 'tests', 'test', 'docs', 'doc'}
 DEV_FILE_SUFFIXES = ('.pyc', '.pyo', '.log', '.tmp', '.old')
+CRITICAL_ADDONS = {'skin.auramod', 'service.dragonmax.voice'}
+CORE_DEP_PREFIXES = ('xbmc.',)
 
 REALMS = [
     ('dragon_order','Dragon Order',(160,55,20)),
@@ -40,7 +43,7 @@ def clean():
 
 def fetch(url, dest):
     dest.parent.mkdir(parents=True, exist_ok=True)
-    req = urllib.request.Request(url, headers={'User-Agent':'DragonMax-V12-Builder/5.0'})
+    req = urllib.request.Request(url, headers={'User-Agent':f'DragonMax-V12-Builder/{RELEASE_VERSION}'})
     with urllib.request.urlopen(req, timeout=120) as r, open(dest,'wb') as f:
         shutil.copyfileobj(r,f)
 
@@ -87,12 +90,9 @@ def locate_legacy_runtime_root(tmp):
     candidates=[]
     for p in [tmp] + [d for d in tmp.rglob('*') if d.is_dir()]:
         score=sum((p/name).exists() for name in RUNTIME_ROOTS)
-        if score:
-            candidates.append((-score, len(p.relative_to(tmp).parts), p))
-    if not candidates:
-        return None
-    candidates.sort(key=lambda x:(x[0],x[1]))
-    return candidates[0][2]
+        if score: candidates.append((-score, len(p.relative_to(tmp).parts), p))
+    if not candidates: return None
+    candidates.sort(key=lambda x:(x[0],x[1])); return candidates[0][2]
 
 
 def copy_legacy():
@@ -106,15 +106,11 @@ def copy_legacy():
         src=runtime_root/top
         if not src.exists(): continue
         dst=STAGE/top
-        if src.is_dir():
-            shutil.copytree(src,dst,dirs_exist_ok=True,copy_function=shutil.copyfile)
-        else:
-            dst.parent.mkdir(parents=True,exist_ok=True); shutil.copyfile(src,dst)
+        if src.is_dir(): shutil.copytree(src,dst,dirs_exist_ok=True,copy_function=shutil.copyfile)
+        else: dst.parent.mkdir(parents=True,exist_ok=True); shutil.copyfile(src,dst)
 
 
 def reset_userdata():
-    # A release payload must not inherit device-specific userdata from V9.2.
-    # Generate only deterministic DragonMax configuration below.
     shutil.rmtree(STAGE/'userdata', ignore_errors=True)
 
 
@@ -122,12 +118,46 @@ def prune_development_debris():
     addons=STAGE/'addons'
     if not addons.exists(): return
     for d in sorted([p for p in addons.rglob('*') if p.is_dir()], key=lambda p:len(p.parts), reverse=True):
-        if d.name.lower() in DEV_DIR_NAMES:
-            shutil.rmtree(d,ignore_errors=True)
+        if d.name.lower() in DEV_DIR_NAMES: shutil.rmtree(d,ignore_errors=True)
     for p in list(addons.rglob('*')):
         if p.is_file() and (p.suffix.lower() in DEV_FILE_SUFFIXES or p.name.lower() in ('thumbs.db','.ds_store')):
             try:p.unlink()
             except OSError:pass
+
+
+def addon_metadata(addon_dir):
+    xml=addon_dir/'addon.xml'
+    if not xml.exists(): return None
+    root=ET.parse(xml).getroot()
+    imports=[]
+    req=root.find('requires')
+    if req is not None:
+        for item in req.findall('import'):
+            imports.append((item.attrib.get('addon',''), item.attrib.get('version',''), item.attrib.get('optional','').lower()=='true'))
+    return {'id':root.attrib.get('id',''), 'version':root.attrib.get('version',''), 'imports':imports}
+
+
+def version_tuple(v):
+    out=[]
+    for part in str(v).split('.'):
+        try: out.append(int(part))
+        except ValueError: break
+    return tuple(out or [0])
+
+
+def prune_kodi21_incompatible_addons():
+    addons=STAGE/'addons'
+    if not addons.exists(): return
+    for d in list(addons.iterdir()):
+        if not d.is_dir() or d.name in CRITICAL_ADDONS: continue
+        try: meta=addon_metadata(d)
+        except Exception:
+            shutil.rmtree(d,ignore_errors=True); continue
+        if not meta: continue
+        py=[x for x in meta['imports'] if x[0]=='xbmc.python' and not x[2]]
+        if py and version_tuple(py[0][1]) < (3,0,0):
+            print('INFO pruning Python-2-era addon for Kodi 21:', d.name)
+            shutil.rmtree(d,ignore_errors=True)
 
 
 def sanitize_stage():
@@ -135,7 +165,7 @@ def sanitize_stage():
     for rel in UNSAFE_STAGE_FILES:
         try:(STAGE/rel).unlink()
         except FileNotFoundError:pass
-    prune_development_debris()
+    prune_development_debris(); prune_kodi21_incompatible_addons()
     for p in list(STAGE.rglob('*')):
         if not p.is_file(): continue
         name=p.name.lower()
@@ -192,7 +222,7 @@ def generate_userdata():
 
 
 def manifest():
-    data={'name':'DragonMax V12 Unified','version':'4.0.0','install_protocol':INSTALL_PROTOCOL,'merge_policy':'V9.2 runtime assets + V11/V12 overlay; device-specific userdata discarded','target_device':'Fire TV Stick 4K Max','realms':[n for s,n,t in REALMS],'release_priority':['quality','stability','smooth_use','visual_consistency','package_size'],'capabilities':['Dragon Voice','Dragon AI intent engine','persistent explicit memory','recent conversation context','allow-listed reversible self-repair','repair history','authenticated LAN command bridge','safe confirmations','remote-control fallback']}
+    data={'name':'DragonMax V12 Unified','version':RELEASE_VERSION,'install_protocol':INSTALL_PROTOCOL,'merge_policy':'V9.2 runtime assets + V11/V12 overlay; device userdata and dev metadata discarded','target_device':'Fire TV Stick 4K Max','realms':[n for s,n,t in REALMS],'release_priority':['quality','stability','smooth_use','visual_consistency','package_size'],'capabilities':['Dragon Voice','Dragon AI intent engine','persistent explicit memory','recent conversation context','allow-listed reversible self-repair','repair history','authenticated LAN command bridge','safe confirmations','remote-control fallback']}
     (STAGE/'dragonmax_manifest.json').write_text(json.dumps(data,indent=2),encoding='utf-8')
 
 
@@ -205,35 +235,78 @@ def payload_file_manifest():
                 for chunk in iter(lambda:f.read(1024*1024),b''): h.update(chunk)
             entries.append({'path':rel,'size':p.stat().st_size,'sha256':h.hexdigest()})
     target=STAGE/'dragonmax'/'install_manifest.json'; target.parent.mkdir(parents=True,exist_ok=True)
-    target.write_text(json.dumps({'schema':2,'install_protocol':INSTALL_PROTOCOL,'files':entries},indent=2),encoding='utf-8')
+    target.write_text(json.dumps({'schema':3,'install_protocol':INSTALL_PROTOCOL,'version':RELEASE_VERSION,'files':entries},indent=2),encoding='utf-8')
 
 
-def write_zip():
-    BUILD.parent.mkdir(parents=True,exist_ok=True)
-    if BUILD.exists(): BUILD.unlink()
-    with zipfile.ZipFile(BUILD,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
-        for p in STAGE.rglob('*'):
-            if p.is_file(): z.write(p,Path(STAGE.name)/p.relative_to(STAGE))
-
-
-def sha256_file(path):
-    h=hashlib.sha256()
-    with open(path,'rb') as f:
-        for chunk in iter(lambda:f.read(1024*1024),b''): h.update(chunk)
-    return h.hexdigest()
-
-
-def validate_addon_xml():
+def validate_addons_and_dependencies():
     addons=STAGE/'addons'
     if not addons.exists(): raise RuntimeError('Payload addons directory missing')
-    invalid=[]
-    for addon in [p for p in addons.iterdir() if p.is_dir()]:
-        xml=addon/'addon.xml'
-        if not xml.exists():
-            invalid.append(addon.name+': missing addon.xml'); continue
-        try: ET.parse(xml)
-        except Exception as e: invalid.append(addon.name+': '+str(e))
-    if invalid: raise RuntimeError('Invalid Kodi addons: '+'; '.join(invalid[:10]))
+    metas={}; invalid=[]
+    for d in [p for p in addons.iterdir() if p.is_dir()]:
+        try: meta=addon_metadata(d)
+        except Exception as e: invalid.append(d.name+': '+str(e)); continue
+        if not meta: invalid.append(d.name+': missing addon.xml'); continue
+        if meta['id'] != d.name: invalid.append(d.name+': addon id '+meta['id']+' does not match directory')
+        metas[meta['id']]=meta
+    if invalid: raise RuntimeError('Invalid Kodi addons: '+'; '.join(invalid[:12]))
+    missing=[]
+    for aid in CRITICAL_ADDONS:
+        meta=metas.get(aid)
+        if not meta: missing.append(aid+': addon missing'); continue
+        for dep,_ver,optional in meta['imports']:
+            if optional or not dep or dep.startswith(CORE_DEP_PREFIXES): continue
+            if dep not in metas: missing.append(aid+' requires '+dep)
+    if missing: raise RuntimeError('Launch-critical dependency closure failed: '+'; '.join(missing))
+
+
+def validate_python3_critical():
+    for aid in CRITICAL_ADDONS:
+        root=STAGE/'addons'/aid
+        if not root.exists(): continue
+        for p in root.rglob('*.py'):
+            try: compile(p.read_text(encoding='utf-8'), str(p.relative_to(STAGE)), 'exec')
+            except Exception as e: raise RuntimeError(f'Python 3 compile failed for {p.relative_to(STAGE)}: {e}')
+
+
+def installable_runtime_files():
+    for p in STAGE.rglob('*'):
+        if not p.is_file(): continue
+        rel=p.relative_to(STAGE)
+        if not rel.parts or rel.parts[0] not in RUNTIME_ROOTS: continue
+        if rel in UNSAFE_STAGE_FILES: continue
+        if any(rel == d or d in rel.parents for d in UNSAFE_STAGE_DIRS): continue
+        if str(rel).replace('\\','/') == 'dragonmax/install_manifest.json': continue
+        yield rel,p
+
+
+def simulate_install(existing_auramod=False, rollback=False):
+    sim=STAGE.parent/('sim_existing' if existing_auramod else 'sim_fresh')
+    shutil.rmtree(sim,ignore_errors=True); home=sim/'home'; backup=sim/'backup'; home.mkdir(parents=True)
+    if existing_auramod:
+        sentinel=home/'addons'/'skin.auramod'/'addon.xml'; sentinel.parent.mkdir(parents=True,exist_ok=True); sentinel.write_text('<sentinel/>',encoding='utf-8')
+    old_adv=home/'userdata'/'advancedsettings.xml'; old_adv.parent.mkdir(parents=True,exist_ok=True); old_adv.write_text('<old/>',encoding='utf-8')
+    originals=[]; created=[]
+    files=list(installable_runtime_files())
+    for rel,src in files:
+        r=str(rel).replace('\\','/')
+        if existing_auramod and r.startswith('addons/skin.auramod/'): continue
+        dst=home/rel
+        if dst.exists() and r.startswith('userdata/'):
+            b=backup/'originals'/rel; b.parent.mkdir(parents=True,exist_ok=True); shutil.copyfile(dst,b); originals.append((dst,b))
+        elif not dst.exists(): created.append(dst)
+        dst.parent.mkdir(parents=True,exist_ok=True); shutil.copyfile(src,dst)
+    if not (home/'addons'/'service.dragonmax.voice'/'addon.xml').exists(): raise RuntimeError('Simulated install missing Dragon Voice')
+    if not (home/'dragonmax'/'config'/'voice.json').exists(): raise RuntimeError('Simulated install missing DragonMax config')
+    if existing_auramod and (home/'addons'/'skin.auramod'/'addon.xml').read_text(encoding='utf-8') != '<sentinel/>': raise RuntimeError('Existing AuraMOD was overwritten in simulation')
+    if not existing_auramod and not (home/'addons'/'skin.auramod'/'addon.xml').exists(): raise RuntimeError('Fresh install simulation missing AuraMOD')
+    if rollback:
+        for dst in reversed(created):
+            try: dst.unlink()
+            except OSError: pass
+        for dst,b in originals:
+            dst.parent.mkdir(parents=True,exist_ok=True); shutil.copyfile(b,dst)
+        if old_adv.read_text(encoding='utf-8') != '<old/>': raise RuntimeError('Rollback simulation did not restore userdata')
+    shutil.rmtree(sim,ignore_errors=True)
 
 
 def validate_quality():
@@ -250,8 +323,25 @@ def validate_quality():
         if rel.parts and rel.parts[0] not in RUNTIME_ROOTS and p.is_file() and p.name!='dragonmax_manifest.json': raise RuntimeError('Unexpected payload root: '+str(rel))
         if 'DragonMax_V9_2_Build_Content' in rel.parts: raise RuntimeError('Nested legacy wrapper leaked into payload: '+str(rel))
     for name in ['menus.json','widgets.json','realms.json','performance.json','voice.json']: json.loads((STAGE/'dragonmax'/'config'/name).read_text(encoding='utf-8'))
-    for name in ['service.py','dragon_memory.py','self_repair.py']: compile((STAGE/'addons'/'service.dragonmax.voice'/name).read_text(encoding='utf-8'),name,'exec')
-    validate_addon_xml()
+    validate_addons_and_dependencies(); validate_python3_critical()
+    simulate_install(existing_auramod=False, rollback=True)
+    simulate_install(existing_auramod=True, rollback=True)
+    print('DragonMax launch simulations passed: fresh install, existing AuraMOD, rollback restoration.')
+
+
+def write_zip():
+    BUILD.parent.mkdir(parents=True,exist_ok=True)
+    if BUILD.exists(): BUILD.unlink()
+    with zipfile.ZipFile(BUILD,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
+        for p in STAGE.rglob('*'):
+            if p.is_file(): z.write(p,Path(STAGE.name)/p.relative_to(STAGE))
+
+
+def sha256_file(path):
+    h=hashlib.sha256()
+    with open(path,'rb') as f:
+        for chunk in iter(lambda:f.read(1024*1024),b''): h.update(chunk)
+    return h.hexdigest()
 
 
 def make_zip():
@@ -273,13 +363,18 @@ def publish_repo_files():
         src=ROOT/name
         if src.exists(): shutil.copyfile(src,OUT/name)
     meta=json.loads((ROOT/'build.json').read_text(encoding='utf-8'))
-    build=meta['builds'][0]; build['last_built_size_mb']=round(BUILD.stat().st_size/1024/1024,2); build['sha256']=sha256_file(BUILD); build['install_protocol']=INSTALL_PROTOCOL
+    build=meta['builds'][0]
+    build['version']=RELEASE_VERSION
+    build['zip']=f'builds/DragonMax_V12_Unified_Build_Content-{RELEASE_VERSION}.zip'
+    build['last_built_size_mb']=round(BUILD.stat().st_size/1024/1024,2)
+    build['sha256']=sha256_file(BUILD)
+    build['install_protocol']=INSTALL_PROTOCOL
     build['protected_runtime_paths']=['userdata/Database','userdata/Thumbnails','userdata/temp','addons/packages','userdata/guisettings.xml']
-    build['payload_policy']='clean runtime image; no inherited device userdata; no repository development metadata'
+    build['payload_policy']='clean runtime image; no inherited device userdata; no repository development metadata; launch-critical dependency closure enforced; fresh/existing-skin/rollback simulations passed'
     (OUT/'build.json').write_text(json.dumps(meta,indent=2),encoding='utf-8')
 
 
 def main():
-    clean(); copy_legacy(); reset_userdata(); sanitize_stage(); install_auramod(); install_dragonmax_addons(); generate_media(); generate_userdata(); sanitize_stage(); manifest(); payload_file_manifest(); make_zip(); publish_repo_files(); repo_release.publish(ROOT, OUT); print('DragonMax V12 clean runtime distribution complete:',BUILD)
+    clean(); copy_legacy(); reset_userdata(); sanitize_stage(); install_auramod(); install_dragonmax_addons(); generate_media(); generate_userdata(); sanitize_stage(); manifest(); payload_file_manifest(); make_zip(); publish_repo_files(); repo_release.publish(ROOT, OUT); print('DragonMax V12 launch-candidate distribution complete:',BUILD)
 
 if __name__=='__main__': main()
