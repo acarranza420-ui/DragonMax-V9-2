@@ -1,15 +1,16 @@
 {
-  "repository_version": "4.0.0",
-  "wizard_version": "4.0.0",
-  "latest_build": "4.0.0",
+  "repository_version": "4.5.0",
+  "wizard_version": "4.5.0",
+  "latest_build": "4.5.0",
   "channel": "staging",
   "minimum_kodi_major": 21,
+  "install_protocol": 4,
   "breaking_update": true,
   "notes": [
-    "Unified DragonMax V9.2 and V11 into one V12 release line.",
-    "V11 files overwrite duplicate V9.2 paths so legacy content cannot downgrade the newer payload.",
-    "Preserved useful V9.2 configuration and artwork missing from V11.",
-    "Standardized repository, wizard, and build version at 4.0.0.",
-    "V12 remains gated until the unified binaries are uploaded and live URL validation passes."
+    "4.5.0 is a launch-candidate line, not automatically device-validated.",
+    "Payload is rebuilt as a clean runtime image with development metadata, legacy wrappers, Kodi databases, thumbnails, caches, temp files, and inherited device userdata removed.",
+    "Critical addon dependency closure and Python 3 compilation are checked during the server build.",
+    "Fresh install, existing-AuraMOD upgrade, and rollback simulations must pass before publication.",
+    "The Fire TV validation install is the final gate before ready=true."
   ]
 }
