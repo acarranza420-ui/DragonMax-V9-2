@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<addon id="service.dragonmax.voice" name="Dragon Voice Service" version="1.0.0" provider-name="DragonMax">
+<addon id="service.dragonmax.voice" name="Dragon Voice Service" version="1.2.0" provider-name="DragonMax">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
   </requires>
   <extension point="xbmc.service" library="service.py" start="startup"/>
   <extension point="xbmc.addon.metadata">
-    <summary lang="en_GB">Voice bridge and local AI intent engine for DragonMax.</summary>
-    <description lang="en_GB">Provides authenticated LAN voice-command bridging, local DragonMax intent handling, system-health assistance, safe confirmations, and optional external AI fallback.</description>
+    <summary lang="en_GB">Voice bridge, memory, self-repair, and DragonMax startup finalizer.</summary>
+    <description lang="en_GB">Provides authenticated LAN voice-command bridging, local DragonMax intent handling, memory, system-health assistance, safe confirmations, guarded self-repair, and one-time AuraMOD activation after a validated install.</description>
     <platform>all</platform>
     <license>MIT</license>
   </extension>
