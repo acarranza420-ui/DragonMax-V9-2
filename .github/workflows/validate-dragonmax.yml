@@ -26,6 +26,27 @@ jobs:
 
           root = pathlib.Path('public')
           errors=[]
+          required_payload_addons = {
+              'skin.auramod',
+              'service.dragonmax.voice',
+              'script.skin.helper.service',
+              'script.skin.helper.widgets',
+              'plugin.video.themoviedb.helper',
+              'script.module.metadatautils',
+              'script.module.thetvdb',
+              'script.module.musicbrainz',
+              'script.module.jurialmunkey',
+              'script.image.resource.select',
+              'resource.images.moviegenreicons.transparent',
+              'resource.images.studios.coloured',
+              'resource.images.studios.white',
+              'repository.auramod.aio',
+              'repository.jurialmunkey',
+              'repository.marcelveldt',
+              'script.colorbox',
+          }
+          forbidden_parts={'.git','.github','.idea','.vscode','__pycache__','tests','test','docs','doc'}
+          forbidden_suffixes={'.pyc','.pyo','.log','.tmp','.old'}
 
           try:
               tree=ET.parse(root/'addons.xml')
@@ -50,14 +71,18 @@ jobs:
               build={}
 
           version=str(build.get('version',''))
-          if not version:
-              errors.append('generated build has no version')
+          if version != '4.5.0':
+              errors.append(f'unexpected release version: {version!r}')
           if versions.get('repository.dragonmax') != version:
               errors.append(f'repository version {versions.get("repository.dragonmax")} != build {version}')
           if versions.get('plugin.program.dragonmaxwizard') != version:
               errors.append(f'wizard version {versions.get("plugin.program.dragonmaxwizard")} != build {version}')
           if int(build.get('install_protocol',0)) < 4:
               errors.append('generated build does not use install protocol 4+')
+
+          for doc in ('updates.json','themes.json','realms.json'):
+              try: json.loads((root/doc).read_text())
+              except Exception as exc: errors.append(f'{doc} invalid: {exc}')
 
           payload=root/build.get('zip','')
           if not payload.is_file():
@@ -74,12 +99,24 @@ jobs:
                       bad=z.testzip()
                       if bad: errors.append(f'corrupt payload member: {bad}')
                       names=z.namelist()
-                      forbidden=['/.git/','/.github/','/userdata/Database/','/userdata/Thumbnails/','/addons/packages/']
-                      for token in forbidden:
-                          if any(token in '/'+n for n in names): errors.append(f'forbidden runtime/development content present: {token}')
-                      if not any('/addons/service.dragonmax.voice/addon.xml' in '/'+n for n in names): errors.append('Dragon Voice addon missing from payload')
-                      if not any('/addons/skin.auramod/addon.xml' in '/'+n for n in names): errors.append('AuraMOD missing from payload')
-                      if not any('/dragonmax/install_manifest.json' in '/'+n for n in names): errors.append('install manifest missing from payload')
+                      normalized=['/'+n.replace('\\','/').strip('/') for n in names]
+
+                      for n in normalized:
+                          parts=[p for p in n.split('/') if p]
+                          if any(p.lower() in forbidden_parts for p in parts):
+                              errors.append(f'development debris present: {n}')
+                          if pathlib.PurePosixPath(n).suffix.lower() in forbidden_suffixes:
+                              errors.append(f'development file present: {n}')
+                          if '/userdata/Database/' in n or '/userdata/Thumbnails/' in n or '/addons/packages/' in n:
+                              errors.append(f'protected runtime content present: {n}')
+
+                      for aid in sorted(required_payload_addons):
+                          token=f'/addons/{aid}/addon.xml'
+                          if not any(token in n for n in normalized):
+                              errors.append(f'required launch dependency missing from payload: {aid}')
+
+                      if not any('/dragonmax/install_manifest.json' in n for n in normalized):
+                          errors.append('install manifest missing from payload')
               except Exception as exc:
                   errors.append(f'payload ZIP validation failed: {exc}')
 
@@ -101,5 +138,5 @@ jobs:
           if errors:
               print('\n'.join('ERROR: '+e for e in errors))
               sys.exit(1)
-          print('DragonMax launch-candidate distribution passed generated-artifact validation.')
+          print('DragonMax launch-candidate distribution passed hardened artifact and dependency validation.')
           PY
