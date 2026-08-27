@@ -2,35 +2,39 @@
 
 DragonMax is a private-use Kodi/AuraMOD build project focused on a Netflix-style home screen, six themed realms, Dragon Portal administration, original artwork/audio, recovery tools, and Fire TV Stick 4K Max performance.
 
-## Current repository status
+## Current stabilization line
 
-This branch is the **V12 Unified 4.0.0 stabilization channel**. Repository, wizard, build manifests, and UI metadata use the 4.0.0 release line. The V12 build remains gated until the three 4.0.0 binary artifacts are published to stable, anonymously downloadable URLs and validation passes.
+This branch is the **V12 Unified 4.5.0 stabilization channel**. The build is generated from source by `build_v12.py`, validated in GitHub Actions, and then deployed to Render. Root-level historical release artifacts are not the production source of truth.
 
-## Kodi source
-
-`https://acarranza420-ui.github.io/DragonMax-V9-2/`
-
-Install only the repository ZIP from Kodi's **Install from zip file** screen. The build payload is not a Kodi add-on ZIP and is applied by DragonMax Wizard.
+Production release host: `https://dragonmax-v12-release.onrender.com/`
 
 ## Release architecture
 
-- `addons.xml` + `addons.xml.md5` — repository index
-- `repository.dragonmax-4.0.0.zip` — Kodi repository installer
-- `plugin.program.dragonmaxwizard-4.0.0.zip` — manifest-driven build installer
-- `build.json` — V12 build release manifest
-- `updates.json` — repository/wizard release metadata
-- `themes.json` / `realms.json` — DragonMax realm metadata
-- `builds/DragonMax_V12_Unified_Build_Content-4.0.0.zip` — canonical V12 payload path when hosted through GitHub Pages
+The generated `public/` directory is the only deployable release output. A successful build creates:
 
-## V12 merge policy
+- `public/addons.xml` and `public/addons.xml.md5`
+- `public/repository.dragonmax-4.5.0.zip`
+- `public/plugin.program.dragonmaxwizard-4.5.0.zip`
+- `public/build.json`
+- `public/updates.json`, `public/themes.json`, and `public/realms.json`
+- `public/builds/DragonMax_V12_Unified_Build_Content-4.5.0.zip`
 
-V9.2 is the legacy baseline. V11 is overlaid afterward and wins every duplicate path. Useful V9.2-only files are retained. The resulting unified release is DragonMax V12 / 4.0.0.
+The full payload is applied by DragonMax Wizard. It is not installed directly as a Kodi add-on ZIP.
 
-## Stability rules
+## Dependency policy
 
-1. Repository, wizard, manifests, and UI version numbers stay synchronized at 4.0.0.
-2. Build payloads are never installed directly from Kodi.
-3. The wizard checks free space, manifest readiness, payload size, ZIP integrity, and required `userdata/` + `addons/` folders before applying files.
-4. A pre-install backup is made before userdata is applied.
-5. V12 remains `ready=false` until its binary artifacts are hosted and validated.
-6. Live release requires a fresh Kodi 21 install trial and a repeat install on the Fire TV Stick 4K Max target.
+AuraMOD is pinned to the validated Kodi 21/Omega source. Fire TV-sensitive AuraMOD dependencies are physically staged into the DragonMax payload so device installation does not depend on repository timing at the 57% dependency gate. The builder rejects corrupt packages, missing add-on manifests, unresolved critical dependencies, unsafe runtime data, development debris, and malformed release metadata.
+
+## Release gates
+
+1. GitHub Actions must build the exact release payload successfully.
+2. Generated repository XML, checksums, manifests, installer ZIPs, and payload SHA-256 must validate.
+3. No `.git`, `.github`, test, cache, database, package-cache, log, or temporary debris may enter the payload.
+4. AuraMOD, Dragon Voice, and the Fire TV dependency flight pack must be present in the generated payload.
+5. Render is advanced only after GitHub validation succeeds. The previous live Render deployment remains active until the replacement reaches `live`.
+6. The live Render commit must match the GitHub-approved stabilization commit before Kodi testing begins.
+7. A Fire TV/Kodi install is a final device-validation gate. A failed device install is not promoted as launch-ready.
+
+## Legacy baseline
+
+`DragonMax_V9_2_Build_Content-1.9.2.zip` remains in the repository only because the V12 builder intentionally uses it as the legacy content baseline. Old repository/wizard installers and stale release manifests are not part of the current release path.
