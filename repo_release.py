@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
+import xml.etree.ElementTree as ET
 import repo_release_v45 as _r
+
+# repo_release_v45.publish validates generated addons.xml with ET. Keep the
+# parser available in the base module namespace so CI and Render execute the
+# exact same publisher successfully.
+_r.ET = ET
 
 # Harden the generated wizard without duplicating its full source in the build
 # entrypoint. The base wizard remains versioned in repo_release_v45.py; this shim
