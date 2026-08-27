@@ -5,8 +5,6 @@ import repo_release_v45 as _r
 
 _r.ET = ET
 
-# Build-time flight pack. These packages are physically staged into the release
-# payload so Fire TV does not depend on repository timing during the 57% gate.
 _FLIGHT_PACK = {
     'script.skin.helper.service': 'https://raw.githubusercontent.com/kodi-community-addons/repository.marcelveldt/master/matrix/script.skin.helper.service/script.skin.helper.service-1.1.43.zip',
     'script.skin.helper.widgets': 'https://raw.githubusercontent.com/kodi-community-addons/repository.marcelveldt/master/matrix/script.skin.helper.widgets/script.skin.helper.widgets-1.0.45.zip',
@@ -15,25 +13,53 @@ _FLIGHT_PACK = {
     'script.module.thetvdb': 'https://raw.githubusercontent.com/kodi-community-addons/repository.marcelveldt/master/matrix/script.module.thetvdb/script.module.thetvdb-1.0.34.zip',
     'script.module.musicbrainz': 'https://raw.githubusercontent.com/kodi-community-addons/repository.marcelveldt/master/matrix/script.module.musicbrainz/script.module.musicbrainz-0.7.0.zip',
     'script.module.jurialmunkey': 'https://raw.githubusercontent.com/jurialmunkey/repository.jurialmunkey/master/omega/zips/script.module.jurialmunkey/script.module.jurialmunkey-0.2.35.zip',
-    # Use source archive for Image Resource Select because the historical 0.0.5
-    # Omega mirror path is not present. extract_addon_zip locates addon.xml inside
-    # a source archive and normalizes it to the required addon id.
     'script.image.resource.select': 'https://codeload.github.com/phil65/script.image.resource.select/zip/refs/heads/master',
-    # Static image resources are cross-version data packs. Use mirror paths that
-    # actually retain the required AuraMOD versions.
     'resource.images.moviegenreicons.transparent': 'https://mirrors.kodi.tv/addons/matrix/resource.images.moviegenreicons.transparent/resource.images.moviegenreicons.transparent-0.0.6.zip',
     'resource.images.studios.coloured': 'https://mirrors.kodi.tv/addons/omega/resource.images.studios.coloured/resource.images.studios.coloured-0.0.24.zip',
     'resource.images.studios.white': 'https://mirrors.kodi.tv/addons/omega/resource.images.studios.white/resource.images.studios.white-0.0.34.zip',
 }
 
+_builder_state = {'packages': False, 'pruner': False}
+
 def _patch_builder(frame, event, arg):
-    if event == 'line' and frame.f_globals.get('__name__') == '__main__':
-        filename = frame.f_code.co_filename.replace('\\', '/')
-        packages = frame.f_globals.get('BOOTSTRAP_PACKAGES')
-        if filename.endswith('/build_v12.py') and isinstance(packages, dict):
-            packages.update(_FLIGHT_PACK)
-            sys.settrace(None)
-            return None
+    if event != 'line' or frame.f_globals.get('__name__') != '__main__':
+        return _patch_builder
+    filename = frame.f_code.co_filename.replace('\\', '/')
+    if not filename.endswith('/build_v12.py'):
+        return _patch_builder
+
+    g = frame.f_globals
+    packages = g.get('BOOTSTRAP_PACKAGES')
+    if isinstance(packages, dict) and not _builder_state['packages']:
+        packages.update(_FLIGHT_PACK)
+        _builder_state['packages'] = True
+
+    prune = g.get('prune_development_debris')
+    if callable(prune) and not _builder_state['pruner']:
+        original = prune
+        def hardened_prune():
+            original()
+            stage = g['STAGE'] / 'addons'
+            dev_names = g['DEV_DIR_NAMES']
+            shutil_mod = g['shutil']
+            if not stage.exists():
+                return
+            for p in sorted(list(stage.rglob('*')), key=lambda x: len(x.parts), reverse=True):
+                if p.name.lower() not in dev_names:
+                    continue
+                try:
+                    if p.is_dir():
+                        shutil_mod.rmtree(p, ignore_errors=True)
+                    else:
+                        p.unlink()
+                except OSError:
+                    pass
+        g['prune_development_debris'] = hardened_prune
+        _builder_state['pruner'] = True
+
+    if _builder_state['packages'] and _builder_state['pruner']:
+        sys.settrace(None)
+        return None
     return _patch_builder
 
 sys.settrace(_patch_builder)
