@@ -23,6 +23,26 @@ PENDING_SKIN_FILE = os.path.join(PROFILE, 'pending_skin_activation.json')
 HOST = '0.0.0.0'
 PORT = 8765
 
+SKIN_DEPENDENCIES = (
+    'repository.auramod.aio',
+    'repository.jurialmunkey',
+    'repository.marcelveldt',
+    'script.colorbox',
+    'script.skin.helper.service',
+    'script.skin.helper.widgets',
+    'plugin.video.themoviedb.helper',
+    'script.module.metadatautils',
+    'script.module.thetvdb',
+    'script.module.musicbrainz',
+    'script.module.jurialmunkey',
+    'script.image.resource.select',
+    'resource.images.moviegenreicons.transparent',
+    'resource.images.studios.coloured',
+    'resource.images.studios.white',
+    'script.skinshortcuts',
+    'plugin.program.autocompletion',
+)
+
 REALMS = {
     'dragon order': 'dragon_order',
     'arcane dominion': 'arcane_dominion',
@@ -64,18 +84,57 @@ def save_state(state):
 def notify(msg): xbmcgui.Dialog().notification('Dragon AI', msg, xbmcgui.NOTIFICATION_INFO, 2500)
 def builtin(command): xbmc.executebuiltin(command)
 
+def jsonrpc(method, params=None):
+    request={'jsonrpc':'2.0','method':method,'id':1}
+    if params is not None: request['params']=params
+    try: return json.loads(xbmc.executeJSONRPC(json.dumps(request)))
+    except Exception as exc:
+        xbmc.log('[DragonVoice] JSON-RPC '+method+' failed: '+repr(exc), xbmc.LOGERROR)
+        return {'error':repr(exc)}
+
+def addon_enabled(addon_id):
+    result=jsonrpc('Addons.GetAddonDetails',{'addonid':addon_id,'properties':['enabled']})
+    try: return bool(result['result']['addon']['enabled'])
+    except Exception: return False
+
+def enable_addon(addon_id):
+    result=jsonrpc('Addons.SetAddonEnabled',{'addonid':addon_id,'enabled':True})
+    if result.get('result') == 'OK' or result.get('result') is True: return True
+    xbmc.executebuiltin('EnableAddon('+addon_id+')')
+    xbmc.sleep(250)
+    return addon_enabled(addon_id)
+
+def enable_skin_stack(skin):
+    xbmc.executebuiltin('UpdateLocalAddons')
+    xbmc.sleep(2500)
+    unresolved=[]
+    for addon_id in SKIN_DEPENDENCIES:
+        if not enable_addon(addon_id) and not addon_enabled(addon_id): unresolved.append(addon_id)
+    if not enable_addon(skin) and not addon_enabled(skin): unresolved.append(skin)
+    if unresolved:
+        xbmc.log('[DragonVoice] skin stack still disabled: '+', '.join(unresolved), xbmc.LOGWARNING)
+        return False
+    return True
+
+def active_skin_is(skin):
+    result=jsonrpc('Settings.GetSettingValue',{'setting':'lookandfeel.skin'})
+    try: return result['result']['value'] == skin
+    except Exception: return False
+
 def activate_pending_skin():
     if not xbmcvfs.exists(PENDING_SKIN_FILE): return False
     try:
         payload=json.loads(read_text(PENDING_SKIN_FILE,'{}') or '{}')
         skin=payload.get('skin','skin.auramod')
-        request={'jsonrpc':'2.0','method':'Settings.SetSettingValue','id':1,'params':{'setting':'lookandfeel.skin','value':skin}}
-        result=json.loads(xbmc.executeJSONRPC(json.dumps(request)))
-        if result.get('result') is True:
-            try: xbmcvfs.delete(PENDING_SKIN_FILE)
-            except Exception: pass
-            xbmc.log('[DragonVoice] activated pending skin '+skin, xbmc.LOGINFO)
-            return True
+        if not enable_skin_stack(skin): return False
+        result=jsonrpc('Settings.SetSettingValue',{'setting':'lookandfeel.skin','value':skin})
+        if result.get('result') is True or result.get('result') == 'OK':
+            xbmc.sleep(1500)
+            if active_skin_is(skin):
+                try: xbmcvfs.delete(PENDING_SKIN_FILE)
+                except Exception: pass
+                xbmc.log('[DragonVoice] activated pending skin '+skin, xbmc.LOGINFO)
+                return True
         xbmc.log('[DragonVoice] pending skin activation returned '+repr(result), xbmc.LOGWARNING)
     except Exception as e:
         xbmc.log('[DragonVoice] pending skin activation failed: '+repr(e), xbmc.LOGERROR)
@@ -186,11 +245,20 @@ def run_server():
         xbmc.log('[DragonVoice] bridge unavailable; local functions remain active: '+repr(e),xbmc.LOGERROR); return None
 
 def main():
-    ensure_profile(); get_token(); REPAIR.auto_repair_known_faults(); xbmc.sleep(1000); activated=activate_pending_skin(); server=run_server()
+    ensure_profile(); get_token(); REPAIR.auto_repair_known_faults(); server=run_server(); monitor=xbmc.Monitor()
+    activated=False
+    if xbmcvfs.exists(PENDING_SKIN_FILE):
+        for attempt in range(12):
+            if monitor.abortRequested(): break
+            xbmc.sleep(2500 if attempt == 0 else 5000)
+            if activate_pending_skin():
+                activated=True
+                break
+            xbmc.executebuiltin('UpdateLocalAddons')
     notify('DragonMax activated' if activated else 'Dragon Voice memory and self-repair ready')
-    monitor=xbmc.Monitor()
     while not monitor.abortRequested():
-        if monitor.waitForAbort(1): break
+        if xbmcvfs.exists(PENDING_SKIN_FILE): activate_pending_skin()
+        if monitor.waitForAbort(5): break
     if server:
         server.shutdown(); server.server_close()
 
