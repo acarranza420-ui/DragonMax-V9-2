@@ -26,7 +26,8 @@ REQUIRED_AUDIO = {
     'ui_click.wav', 'ui_back.wav', 'ui_select.wav', 'error.wav',
 }
 REQUIRED_ACTIVATION_TOKENS = {
-    'pending_skin_activation.json', 'EnableAddon(skin.auramod)',
+    'pending_skin_activation.json', 'Addons.SetAddonEnabled',
+    'enable_skin_stack', 'active_skin_is',
     'Settings.SetSettingValue', 'lookandfeel.skin',
 }
 
@@ -61,6 +62,7 @@ def main():
     try:
         build_doc = json.loads((PUBLIC / 'build.json').read_text(encoding='utf-8'))
         build = build_doc['builds'][0]
+        version = str(build.get('version', ''))
     except Exception as exc:
         raise SystemExit(f'ERROR: cannot load generated build.json: {exc}')
 
@@ -159,11 +161,13 @@ def main():
             if f'realm_change_{realm}.wav' not in audio_names:
                 fail(errors, f'missing realm transition audio for {realm}')
 
+        service_rel = 'addons/service.dragonmax.voice/service.py'
         source_text = ''
-        for rel in ('addons/service.dragonmax.voice/service.py', 'addons/plugin.program.dragonmaxwizard/default.py'):
-            if rel in members:
-                try: source_text += '\n' + z.read(members[rel]).decode('utf-8', errors='ignore')
-                except Exception: pass
+        if service_rel in members:
+            try: source_text = z.read(members[service_rel]).decode('utf-8', errors='ignore')
+            except Exception: pass
+        else:
+            fail(errors, 'Dragon Voice startup service missing from runtime payload')
         for token in REQUIRED_ACTIVATION_TOKENS:
             if token not in source_text:
                 fail(errors, f'post-install activation/recovery hook missing token: {token}')
@@ -176,9 +180,22 @@ def main():
                     addon_ids[node.attrib.get('id', '')] = node.attrib.get('version', '')
                 except Exception as exc:
                     fail(errors, f'cannot parse {rel}: {exc}')
-        for required in ('skin.auramod', 'service.dragonmax.voice', 'plugin.program.dragonmaxwizard'):
+        for required in ('skin.auramod', 'service.dragonmax.voice'):
             if required not in addon_ids:
-                fail(errors, f'launch-critical addon missing: {required}')
+                fail(errors, f'launch-critical runtime addon missing: {required}')
+
+    for installer_id in ('repository.dragonmax', 'plugin.program.dragonmaxwizard'):
+        artifact = PUBLIC / f'{installer_id}-{version}.zip'
+        if not artifact.is_file():
+            fail(errors, f'launch installer artifact missing: {artifact.name}')
+        else:
+            try:
+                with zipfile.ZipFile(artifact) as installer_zip:
+                    bad = installer_zip.testzip()
+                    if bad:
+                        fail(errors, f'{artifact.name} corrupt member: {bad}')
+            except Exception as exc:
+                fail(errors, f'{artifact.name} is not a valid installer ZIP: {exc}')
 
     if errors:
         for e in errors:
@@ -189,7 +206,8 @@ def main():
     print(f'Compressed payload: {compressed_mib:.1f} MiB')
     print(f'Extracted payload: {extracted_mib:.1f} MiB')
     print('Verified: home contract, widget contract, six realm media packs, performance profiles,')
-    print('voice safety/self-repair, startup/audio assets, activation hooks, and launch-critical addons.')
+    print('voice safety/self-repair, startup/audio assets, JSON-RPC activation hooks, runtime addons,')
+    print('and separate repository/wizard installer artifacts.')
     return 0
 
 
