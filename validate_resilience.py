@@ -10,7 +10,6 @@ and missing last-known-good recovery hooks.
 import hashlib
 import json
 import pathlib
-import shutil
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
@@ -19,7 +18,7 @@ import zipfile
 ROOT = pathlib.Path(__file__).resolve().parent
 PUBLIC = ROOT / 'public'
 CORE_PREFIXES = ('xbmc.', 'kodi.')
-CRITICAL_ROOTS = {'skin.auramod', 'service.dragonmax.voice', 'plugin.program.dragonmaxwizard'}
+RUNTIME_CRITICAL_ROOTS = {'skin.auramod', 'service.dragonmax.voice'}
 OFFICIAL_ALLOWLIST = {
     'script.skinshortcuts', 'plugin.program.autocompletion',
     'script.module.simplecache', 'script.module.routing', 'script.module.requests',
@@ -39,6 +38,7 @@ RECOVERY_TOKENS = {
 }
 ACTIVATION_TOKENS = {
     'pending_skin_activation.json', 'UpdateLocalAddons',
+    'Addons.SetAddonEnabled', 'enable_skin_stack',
     'Settings.SetSettingValue', 'lookandfeel.skin', 'active_skin_is',
 }
 
@@ -87,9 +87,9 @@ def addon_graph(z, members, errors):
                 imports.append((node.attrib.get('addon', ''), node.attrib.get('version', '0'), node.attrib.get('optional', '').lower() == 'true'))
         addons[aid] = {'version': ver, 'imports': imports, 'rel': rel}
 
-    for root_id in CRITICAL_ROOTS:
+    for root_id in RUNTIME_CRITICAL_ROOTS:
         if root_id not in addons:
-            errors.append(f'critical addon absent from payload: {root_id}')
+            errors.append(f'critical runtime addon absent from payload: {root_id}')
             continue
         queue = [root_id]
         seen = set()
@@ -177,6 +177,34 @@ def simulate_upgrade(z, members, errors):
                 errors.append(f'upgrade simulation missing installed runtime file: {required}')
 
 
+def verify_installer_artifact(path, expected_id, expected_version, errors):
+    if not path.is_file():
+        errors.append(f'installer artifact missing: {path.name}')
+        return
+    try:
+        with zipfile.ZipFile(path) as z:
+            bad = z.testzip()
+            if bad:
+                errors.append(f'{path.name} corrupt member: {bad}')
+                return
+            addon_xmls = [n for n in z.namelist() if n.replace('\\', '/').endswith('/addon.xml')]
+            matched = False
+            for name in addon_xmls:
+                try:
+                    node = ET.fromstring(z.read(name).decode('utf-8'))
+                except Exception:
+                    continue
+                if node.attrib.get('id') == expected_id:
+                    matched = True
+                    if str(node.attrib.get('version')) != str(expected_version):
+                        errors.append(f'{path.name} embeds {expected_id} version {node.attrib.get("version")} != {expected_version}')
+                    break
+            if not matched:
+                errors.append(f'{path.name} does not contain expected addon {expected_id}')
+    except Exception as exc:
+        errors.append(f'cannot inspect {path.name}: {exc}')
+
+
 def main():
     errors = []
     try:
@@ -228,9 +256,7 @@ def main():
         for aid in ('repository.dragonmax', 'plugin.program.dragonmaxwizard'):
             if str(repo_versions.get(aid)) != version:
                 errors.append(f'{aid} repository version {repo_versions.get(aid)!r} != build {version}')
-            artifact = PUBLIC / f'{aid}-{version}.zip'
-            if not artifact.is_file():
-                errors.append(f'installer artifact missing: {artifact.name}')
+            verify_installer_artifact(PUBLIC / f'{aid}-{version}.zip', aid, version, errors)
     except Exception as exc:
         errors.append(f'cannot validate repository release identity: {exc}')
 
@@ -240,9 +266,9 @@ def main():
         return 1
 
     print('DragonMax resilience gate passed.')
-    print('Verified: complete install-manifest hashes, duplicate-path rejection, critical dependency closure,')
+    print('Verified: complete install-manifest hashes, duplicate-path rejection, runtime dependency closure,')
     print('minimum dependency versions, protected-data upgrade preservation, restart activation hooks,')
-    print('corrupt-state last-known-good recovery, release identity, and Fire TV file-count budget.')
+    print('corrupt-state last-known-good recovery, separate installer identities, and Fire TV file-count budget.')
     return 0
 
 
