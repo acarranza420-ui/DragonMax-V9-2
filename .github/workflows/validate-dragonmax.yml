@@ -36,6 +36,8 @@ jobs:
               'script.module.thetvdb',
               'script.module.musicbrainz',
               'script.module.jurialmunkey',
+              'script.module.infotagger',
+              'script.module.requests',
               'script.image.resource.select',
               'resource.images.moviegenreicons.transparent',
               'resource.images.studios.coloured',
@@ -138,5 +140,5 @@ jobs:
           if errors:
               print('\n'.join('ERROR: '+e for e in errors))
               sys.exit(1)
-          print('DragonMax launch-candidate distribution passed hardened artifact and dependency validation.')
+          print('DragonMax launch-candidate distribution passed expanded Omega dependency validation.')
           PY
