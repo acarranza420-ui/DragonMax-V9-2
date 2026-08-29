@@ -23,6 +23,10 @@ OFFICIAL_ALLOWLIST = {
     'script.skinshortcuts', 'plugin.program.autocompletion',
     'script.module.simplecache', 'script.module.routing', 'script.module.requests',
     'script.module.inputstreamhelper', 'script.module.dateutil',
+    'script.module.simplejson', 'script.module.pil', 'script.module.addon.signals',
+    'script.module.qrcode', 'script.module.beautifulsoup4', 'script.module.arrow',
+    'script.module.certifi', 'script.module.chardet', 'script.module.idna',
+    'script.module.urllib3',
     'script.image.resource.select', 'resource.images.moviegenreicons.transparent',
     'resource.images.studios.coloured', 'resource.images.studios.white',
 }
