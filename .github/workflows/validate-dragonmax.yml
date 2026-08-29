@@ -145,3 +145,6 @@ jobs:
 
       - name: Simulate launch experience and Fire TV budgets
         run: python3 validate_launch_experience.py
+
+      - name: Validate resilience, upgrade preservation, and recovery
+        run: python3 validate_resilience.py
