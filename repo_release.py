@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
+import json
 import sys
 import xml.etree.ElementTree as ET
+import dependency_closure as _closure
 import repo_release_v45 as _r
 
 _r.ET = ET
 
-# Fire TV launch flight pack. Keep launch-critical AuraMOD direct dependencies
-# and the non-core Python modules that are otherwise exposed to repository timing.
+# Fire TV flight pack for third-party launch dependencies. Official Kodi Omega
+# modules are resolved recursively by dependency_closure.py.
 _FLIGHT_PACK = {
     'script.skin.helper.service': 'https://raw.githubusercontent.com/kodi-community-addons/repository.marcelveldt/master/matrix/script.skin.helper.service/script.skin.helper.service-1.1.43.zip',
     'script.skin.helper.widgets': 'https://raw.githubusercontent.com/kodi-community-addons/repository.marcelveldt/master/matrix/script.skin.helper.widgets/script.skin.helper.widgets-1.0.45.zip',
@@ -22,12 +24,11 @@ _FLIGHT_PACK = {
     'resource.images.studios.coloured': 'https://mirrors.kodi.tv/addons/omega/resource.images.studios.coloured/resource.images.studios.coloured-0.0.24.zip',
     'resource.images.studios.white': 'https://mirrors.kodi.tv/addons/omega/resource.images.studios.white/resource.images.studios.white-0.0.34.zip',
     'script.skinshortcuts': 'https://github.com/MikeSiLVO/script.skinshortcuts/releases/download/v2.0.3/script.skinshortcuts-2.0.3.zip',
-    'script.module.unidecode': 'https://mirrors.kodi.tv/addons/omega/script.module.unidecode/script.module.unidecode-1.3.6.zip',
-    'script.module.simpleeval': 'https://mirrors.kodi.tv/addons/omega/script.module.simpleeval/script.module.simpleeval-0.9.13.zip',
     'plugin.program.autocompletion': 'https://mirrors.kodi.tv/addons/matrix/plugin.program.autocompletion/plugin.program.autocompletion-2.0.5.zip',
 }
 
-_builder_state = {'packages': False, 'pruner': False}
+_builder_state = {'packages': False, 'pruner': False, 'closure': False, 'userdata': False}
+
 
 def _patch_builder(frame, event, arg):
     if event != 'line' or frame.f_globals.get('__name__') != '__main__':
@@ -65,10 +66,38 @@ def _patch_builder(frame, event, arg):
         g['prune_development_debris'] = hardened_prune
         _builder_state['pruner'] = True
 
-    if _builder_state['packages'] and _builder_state['pruner']:
+    install_dragonmax = g.get('install_dragonmax_addons')
+    if callable(install_dragonmax) and not _builder_state['closure']:
+        original_install = install_dragonmax
+        def install_with_dependency_closure():
+            original_install()
+            _closure.bundle_official_dependency_closure(g['STAGE'], g['fetch'], g['extract_addon_zip'], g['fetch_text'])
+        g['install_dragonmax_addons'] = install_with_dependency_closure
+        _builder_state['closure'] = True
+
+    generate_userdata = g.get('generate_userdata')
+    if callable(generate_userdata) and not _builder_state['userdata']:
+        original_userdata = generate_userdata
+        def generate_unified_userdata():
+            original_userdata()
+            stage = g['STAGE']
+            keymap = stage / 'userdata' / 'keymaps' / 'dragonmax.xml'
+            keymap.write_text('<keymap><global><keyboard><menu>ActivateWindow(Programs,plugin://plugin.program.dragonmaxportal/,return)</menu></keyboard></global></keymap>', encoding='utf-8')
+            menu_path = stage / 'dragonmax' / 'config' / 'menus.json'
+            try:
+                menus = json.loads(menu_path.read_text(encoding='utf-8'))
+            except Exception:
+                menus = {}
+            menus['portal'] = ['Switch Skin','Performance','Weather','Wallpapers','Add-ons','Maintenance','Advanced Settings','System Info','Repair DragonMax']
+            menu_path.write_text(json.dumps(menus, indent=2), encoding='utf-8')
+        g['generate_userdata'] = generate_unified_userdata
+        _builder_state['userdata'] = True
+
+    if all(_builder_state.values()):
         sys.settrace(None)
         return None
     return _patch_builder
+
 
 sys.settrace(_patch_builder)
 
@@ -89,6 +118,7 @@ def finalize_addons():
     xbmc.executebuiltin('UpdateLocalAddons')
     xbmc.sleep(1500)
     xbmc.executebuiltin('EnableAddon(service.dragonmax.voice)')
+    xbmc.executebuiltin('EnableAddon(plugin.program.dragonmaxportal)')
     xbmc.executebuiltin('EnableAddon(skin.auramod)')
     profile = xbmcvfs.translatePath('special://profile/addon_data/service.dragonmax.voice/')
     os.makedirs(profile, exist_ok=True)
@@ -109,14 +139,7 @@ _r.DEFAULT = _r.DEFAULT.replace(_old, _new, 1)
 _original_gates = _r.gates
 def gates(source):
     _original_gates(source)
-    required = (
-        'finalize_addons',
-        'EnableAddon(service.dragonmax.voice)',
-        'EnableAddon(skin.auramod)',
-        'EnableAddon('+"'"+'+aid+'+"'"+')',
-        'pending_skin_activation.json',
-        'dependency retry',
-    )
+    required = ('finalize_addons','EnableAddon(service.dragonmax.voice)','EnableAddon(plugin.program.dragonmaxportal)','EnableAddon(skin.auramod)','EnableAddon('+"'"+'+aid+'+"'"+')','pending_skin_activation.json','dependency retry')
     for token in required:
         if token not in source:
             raise RuntimeError('Installer finalization/bootstrap gate missing '+token)
