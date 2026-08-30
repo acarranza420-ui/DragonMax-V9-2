@@ -17,6 +17,15 @@ PROFILE = xbmcvfs.translatePath('special://profile/addon_data/service.dragonmax.
 STATE_FILE = os.path.join(PROFILE, 'state.json')
 PENDING_SKIN_FILE = os.path.join(PROFILE, 'pending_skin_activation.json')
 
+REALMS = (
+    ('dragon_order', 'Dragon Order'),
+    ('arcane_dominion', 'Arcane Dominion'),
+    ('crimson_court', 'Crimson Court'),
+    ('temple_guardians', 'Temple Guardians'),
+    ('champion_guild', 'Champion Guild'),
+    ('office_consortium', 'Office Consortium'),
+)
+
 
 def url(action, **kwargs):
     data = {'action': action}
@@ -77,6 +86,22 @@ def set_skin(skin):
         notify('Skin switch could not be completed.')
 
 
+def set_realm(slug):
+    realm_name = dict(REALMS).get(slug)
+    if not realm_name:
+        notify('Unknown DragonMax realm.')
+        return
+    state = read_state()
+    state['realm'] = slug
+    write_state(state)
+    xbmc.executebuiltin('Skin.SetString(DragonMaxRealm,' + slug + ')')
+    xbmc.executebuiltin('Skin.SetString(DragonMaxRealmName,' + realm_name + ')')
+    xbmc.executebuiltin('PlayMedia(special://home/audio/realm_change_' + slug + '.wav)')
+    notify('Realm: ' + realm_name)
+    xbmc.sleep(350)
+    xbmc.executebuiltin('ActivateWindow(Home)')
+
+
 def performance(mode):
     state = read_state()
     state['performance_mode'] = mode
@@ -127,8 +152,10 @@ def system_info():
     skin = jsonrpc('Settings.GetSettingValue', {'setting': 'lookandfeel.skin'}).get('result', {}).get('value', 'unknown')
     state = read_state()
     perf = state.get('performance_mode', 'balanced').replace('_', ' ').title()
+    realm = dict(REALMS).get(state.get('realm', 'dragon_order'), 'Dragon Order')
     msg = 'Kodi: ' + xbmc.getInfoLabel('System.BuildVersion')
     msg += '\nSkin: ' + str(skin)
+    msg += '\nRealm: ' + realm
     msg += '\nPerformance: ' + perf
     if free:
         msg += '\nFree storage: ' + str(free) + ' MB'
@@ -147,27 +174,15 @@ def repair():
     notify('Repair queued. Fully exit Kodi and reopen it.')
 
 
-def weather():
-    xbmc.executebuiltin('ActivateWindow(Weather)')
-
-
-def weather_settings():
-    xbmc.executebuiltin('ActivateWindow(Settings,weather,return)')
-
-
-def wallpapers():
-    xbmc.executebuiltin('ActivateWindow(Pictures,special://home/artwork/wallpapers/,return)')
-
-
-def addon_manager():
-    xbmc.executebuiltin('ActivateWindow(AddonBrowser)')
-
-
-def advanced_settings():
-    xbmc.executebuiltin('ActivateWindow(SettingsSystem)')
+def weather(): xbmc.executebuiltin('ActivateWindow(Weather)')
+def weather_settings(): xbmc.executebuiltin('ActivateWindow(Settings,weather,return)')
+def wallpapers(): xbmc.executebuiltin('ActivateWindow(Pictures,special://home/artwork/wallpapers/,return)')
+def addon_manager(): xbmc.executebuiltin('ActivateWindow(AddonBrowser)')
+def advanced_settings(): xbmc.executebuiltin('ActivateWindow(SettingsSystem)')
 
 
 def build_root():
+    item('Switch Realm', 'realms', folder=True)
     item('Switch Skin', 'skins', folder=True)
     item('Performance', 'performance_menu', folder=True)
     item('Weather', 'weather_menu', folder=True)
@@ -177,6 +192,14 @@ def build_root():
     item('Advanced Settings', 'advanced')
     item('System Info', 'system_info')
     item('Repair DragonMax', 'repair')
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
+def build_realms():
+    current = read_state().get('realm', 'dragon_order')
+    for slug, name in REALMS:
+        prefix = '✓ ' if slug == current else ''
+        item(prefix + name, 'set_realm', realm=slug)
     xbmcplugin.endOfDirectory(HANDLE)
 
 
@@ -202,12 +225,13 @@ def build_weather():
 def main():
     q = urllib.parse.parse_qs(sys.argv[2][1:] if len(sys.argv) > 2 and sys.argv[2].startswith('?') else '')
     action = q.get('action', [''])[0]
-    if not action:
-        return build_root()
+    if not action: return build_root()
+    if action == 'realms': return build_realms()
     if action == 'skins': return build_skins()
     if action == 'performance_menu': return build_perf()
     if action == 'weather_menu': return build_weather()
-    if action == 'set_skin': set_skin(q.get('skin', ['skin.auramod'])[0])
+    if action == 'set_realm': set_realm(q.get('realm', ['dragon_order'])[0])
+    elif action == 'set_skin': set_skin(q.get('skin', ['skin.auramod'])[0])
     elif action == 'performance': performance(q.get('mode', ['balanced'])[0])
     elif action == 'weather': weather()
     elif action == 'weather_settings': weather_settings()
@@ -218,6 +242,4 @@ def main():
     elif action == 'system_info': system_info()
     elif action == 'repair': repair()
 
-
-if __name__ == '__main__':
-    main()
+if __name__ == '__main__': main()
