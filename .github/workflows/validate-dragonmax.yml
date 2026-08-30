@@ -31,6 +31,7 @@ jobs:
               'service.dragonmax.voice',
               'script.skin.helper.service',
               'script.skin.helper.widgets',
+              'script.skinshortcuts',
               'plugin.video.themoviedb.helper',
               'script.module.metadatautils',
               'script.module.thetvdb',
