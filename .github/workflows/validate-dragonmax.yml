@@ -78,7 +78,7 @@ jobs:
               build={}
 
           version=str(build.get('version',''))
-          if version != '4.6.0':
+          if version != '4.7.0':
               errors.append(f'unexpected release version: {version!r}')
           if versions.get('repository.dragonmax') != version:
               errors.append(f'repository version {versions.get("repository.dragonmax")} != build {version}')
@@ -122,6 +122,10 @@ jobs:
                           if not any(token in n for n in normalized):
                               errors.append(f'required launch dependency missing from payload: {aid}')
 
+                      for required_path in ('/addons/skin.auramod/1080i/Home.xml','/addons/skin.auramod/shortcuts/mainmenu.DATA.xml'):
+                          if not any(required_path in n for n in normalized):
+                              errors.append(f'DragonMax presentation file missing: {required_path}')
+
                       if not any('/dragonmax/install_manifest.json' in n for n in normalized):
                           errors.append('install manifest missing from payload')
               except Exception as exc:
@@ -145,7 +149,7 @@ jobs:
           if errors:
               print('\n'.join('ERROR: '+e for e in errors))
               sys.exit(1)
-          print('DragonMax launch-candidate distribution passed expanded Omega dependency validation.')
+          print('DragonMax 4.7 presentation release passed expanded Omega dependency validation.')
           PY
 
       - name: Run comprehensive release audit
