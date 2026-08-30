@@ -26,6 +26,15 @@ REALMS = (
     ('office_consortium', 'Office Consortium'),
 )
 
+MEDIA_SECTIONS = {
+    'movies': ('Movies', 'browse_movies', 'video_addons'),
+    'tv': ('TV Shows', 'browse_tv', 'video_addons'),
+    'sports': ('Sports', 'browse_sports', 'video_addons'),
+    'anime': ('Anime', 'browse_anime', 'video_addons'),
+    'music': ('Music', 'browse_music', 'audio_addons'),
+    'podcasts': ('Podcasts', 'browse_podcasts', 'audio_addons'),
+}
+
 
 def url(action, **kwargs):
     data = {'action': action}
@@ -105,11 +114,34 @@ def set_realm(slug):
     xbmc.executebuiltin('ActivateWindow(Home)')
 
 
+def open_section(section):
+    if section not in MEDIA_SECTIONS:
+        notify('Unknown DragonMax media section: ' + section)
+        return
+    xbmc.executebuiltin('ActivateWindow(Programs,"' + url('section', section=section) + '",return)')
+
+
+def build_section(section):
+    spec = MEDIA_SECTIONS.get(section)
+    if not spec:
+        notify('Unknown DragonMax media section: ' + section)
+        xbmcplugin.endOfDirectory(HANDLE)
+        return
+    label, browse_target, addons_target = spec
+    item('Browse ' + label, 'open', target=browse_target)
+    item(label + ' Add-ons Source', 'open', target=addons_target)
+    xbmcplugin.setPluginCategory(HANDLE, 'DragonMax - ' + label)
+    xbmcplugin.endOfDirectory(HANDLE)
+
+
 def open_target(target):
     """Single tested command router for all Home.xml controls."""
     click_sound()
 
-    if target == 'anime':
+    if target in MEDIA_SECTIONS:
+        return open_section(target)
+
+    if target == 'browse_anime':
         state = read_state()
         state['realm'] = 'arcane_dominion'
         write_state(state)
@@ -117,18 +149,18 @@ def open_target(target):
         xbmc.executebuiltin('Skin.SetString(DragonMaxRealmName,Arcane Dominion)')
         xbmc.executebuiltin('PlayMedia(special://home/audio/realm_change_arcane_dominion.wav)')
         xbmc.sleep(120)
-        xbmc.executebuiltin('ActivateWindow(Videos,"plugin://plugin.video.themoviedb.helper/?info=search&query=anime&widget=True",return)')
-        return
 
     routes = {
         'portal': 'ActivateWindow(Programs,"plugin://plugin.program.dragonmaxportal/",return)',
         'continue': 'ActivateWindow(Videos,"videodb://inprogresstvshows/",return)',
-        'movies': 'ActivateWindow(Videos,"plugin://plugin.video.themoviedb.helper/?info=dir_movie&widget=True",return)',
-        'tv': 'ActivateWindow(Videos,"plugin://plugin.video.themoviedb.helper/?info=dir_tv&widget=True",return)',
-        'sports': 'ActivateWindow(Videos,"addons://sources/video/",return)',
-        'music': 'ActivateWindow(MusicFiles)',
-        'music_addons': 'ActivateWindow(MusicFiles,"addons://sources/audio/",return)',
-        'podcasts': 'ActivateWindow(MusicFiles,"addons://sources/audio/",return)',
+        'browse_movies': 'ActivateWindow(Videos,"plugin://plugin.video.themoviedb.helper/?info=dir_movie&widget=True",return)',
+        'browse_tv': 'ActivateWindow(Videos,"plugin://plugin.video.themoviedb.helper/?info=dir_tv&widget=True",return)',
+        'browse_sports': 'ActivateWindow(Videos,"addons://sources/video/",return)',
+        'browse_anime': 'ActivateWindow(Videos,"plugin://plugin.video.themoviedb.helper/?info=search&query=anime&widget=True",return)',
+        'browse_music': 'ActivateWindow(MusicFiles)',
+        'browse_podcasts': 'ActivateWindow(MusicFiles,"addons://sources/audio/",return)',
+        'video_addons': 'ActivateWindow(Videos,"addons://sources/video/",return)',
+        'audio_addons': 'ActivateWindow(MusicFiles,"addons://sources/audio/",return)',
         'settings': 'ActivateWindow(Settings)',
         'addons': 'ActivateWindow(AddonBrowser)',
         'weather': 'ActivateWindow(Weather)',
@@ -196,17 +228,16 @@ def repair():
     notify('Repair queued. Fully exit Kodi and reopen it.')
 
 
-def weather_settings(): xbmc.executebuiltin('ActivateWindow(Settings,weather,return)')
 def wallpapers(): xbmc.executebuiltin('ActivateWindow(Pictures,special://home/artwork/wallpapers/,return)')
 def advanced_settings(): xbmc.executebuiltin('ActivateWindow(SettingsSystem)')
 
 
 def build_root():
-    item('Sports', 'open', target='sports'); item('Anime', 'open', target='anime')
-    item('Music', 'open', target='music'); item('Music Add-ons', 'open', target='music_addons'); item('Podcasts', 'open', target='podcasts')
+    for section in ('movies', 'tv', 'sports', 'anime', 'music', 'podcasts'):
+        item(MEDIA_SECTIONS[section][0], 'section', folder=True, section=section)
     item('Switch Realm', 'realms', folder=True); item('Switch Skin', 'skins', folder=True)
     item('Performance', 'performance_menu', folder=True); item('Weather', 'open', target='weather')
-    item('Wallpapers', 'wallpapers'); item('Add-ons', 'open', target='addons'); item('Maintenance', 'maintenance')
+    item('Wallpapers', 'wallpapers'); item('All Add-ons', 'open', target='addons'); item('Maintenance', 'maintenance')
     item('Advanced Settings', 'advanced'); item('System Info', 'system_info'); item('Repair DragonMax', 'repair')
     xbmcplugin.endOfDirectory(HANDLE)
 
@@ -231,6 +262,7 @@ def main():
     q = urllib.parse.parse_qs(sys.argv[2][1:] if len(sys.argv) > 2 and sys.argv[2].startswith('?') else '')
     action = q.get('action', [''])[0]
     if not action: return build_root()
+    if action == 'section': return build_section(q.get('section', ['movies'])[0])
     if action == 'realms': return build_realms()
     if action == 'skins': return build_skins()
     if action == 'performance_menu': return build_perf()
