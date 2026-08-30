@@ -17,7 +17,7 @@ jobs:
           python-version: '3.12'
 
       - name: Build the exact release payload and installer
-        run: python3 build_v12.py
+        run: python3 build_release.py
 
       - name: Validate generated public distribution
         run: |
