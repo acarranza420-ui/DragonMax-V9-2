@@ -41,7 +41,11 @@ def item(label, action=None, folder=False, **kwargs):
 
 
 def notify(msg):
-    xbmcgui.Dialog().notification('Dragon Portal', msg, xbmcgui.NOTIFICATION_INFO, 2600)
+    xbmcgui.Dialog().notification('Dragon Portal', msg, xbmcgui.NOTIFICATION_INFO, 2200)
+
+
+def click_sound(name='ui_select.wav'):
+    xbmc.executebuiltin('PlayMedia(special://home/audio/' + name + ')')
 
 
 def ensure_profile():
@@ -97,9 +101,27 @@ def set_realm(slug):
     xbmc.executebuiltin('Skin.SetString(DragonMaxRealm,' + slug + ')')
     xbmc.executebuiltin('Skin.SetString(DragonMaxRealmName,' + realm_name + ')')
     xbmc.executebuiltin('PlayMedia(special://home/audio/realm_change_' + slug + '.wav)')
-    notify('Realm: ' + realm_name)
-    xbmc.sleep(350)
+    xbmc.sleep(180)
     xbmc.executebuiltin('ActivateWindow(Home)')
+
+
+def open_target(target):
+    """Single tested command router for all Home.xml controls."""
+    click_sound()
+    routes = {
+        'portal': 'ActivateWindow(Programs,"plugin://plugin.program.dragonmaxportal/",return)',
+        'continue': 'ActivateWindow(Videos,"videodb://inprogresstvshows/",return)',
+        'movies': 'ActivateWindow(Videos,"plugin://plugin.video.themoviedb.helper/?info=dir_movie&widget=True",return)',
+        'tv': 'ActivateWindow(Videos,"plugin://plugin.video.themoviedb.helper/?info=dir_tv&widget=True",return)',
+        'settings': 'ActivateWindow(Settings)',
+        'addons': 'ActivateWindow(AddonBrowser)',
+        'weather': 'ActivateWindow(Weather)',
+    }
+    command = routes.get(target)
+    if not command:
+        notify('Unknown DragonMax destination: ' + target)
+        return
+    xbmc.executebuiltin(command)
 
 
 def performance(mode):
@@ -112,30 +134,22 @@ def performance(mode):
 
 def maintenance():
     choice = xbmcgui.Dialog().select('DragonMax Maintenance', [
-        'Refresh local add-ons',
-        'Refresh repositories',
-        'Clear thumbnail cache',
-        'Open Kodi File Manager',
-    ])
+        'Refresh local add-ons', 'Refresh repositories', 'Clear thumbnail cache', 'Open Kodi File Manager'])
     if choice == 0:
-        xbmc.executebuiltin('UpdateLocalAddons')
-        notify('Local add-ons refreshed.')
+        xbmc.executebuiltin('UpdateLocalAddons'); notify('Local add-ons refreshed.')
     elif choice == 1:
-        xbmc.executebuiltin('UpdateAddonRepos')
-        notify('Repositories refreshed.')
+        xbmc.executebuiltin('UpdateAddonRepos'); notify('Repositories refreshed.')
     elif choice == 2:
         if not xbmcgui.Dialog().yesno('DragonMax Maintenance', 'Clear cached thumbnails? Kodi will rebuild them as needed.'):
             return
         thumbs = xbmcvfs.translatePath('special://thumbnails/')
         try:
             dirs, files = xbmcvfs.listdir(thumbs)
-            for name in files:
-                xbmcvfs.delete(os.path.join(thumbs, name))
+            for name in files: xbmcvfs.delete(os.path.join(thumbs, name))
             for name in dirs:
                 path = os.path.join(thumbs, name)
-                subdirs, subfiles = xbmcvfs.listdir(path)
-                for f in subfiles:
-                    xbmcvfs.delete(os.path.join(path, f))
+                _, subfiles = xbmcvfs.listdir(path)
+                for f in subfiles: xbmcvfs.delete(os.path.join(path, f))
             notify('Thumbnail cache cleanup completed.')
         except Exception:
             notify('Thumbnail cleanup could not complete.')
@@ -145,28 +159,20 @@ def maintenance():
 
 def system_info():
     free = 0
-    try:
-        free = xbmcvfs.getDiskSpace(xbmcvfs.translatePath('special://home/')) // (1024 * 1024)
-    except Exception:
-        pass
+    try: free = xbmcvfs.getDiskSpace(xbmcvfs.translatePath('special://home/')) // (1024 * 1024)
+    except Exception: pass
     skin = jsonrpc('Settings.GetSettingValue', {'setting': 'lookandfeel.skin'}).get('result', {}).get('value', 'unknown')
-    state = read_state()
-    perf = state.get('performance_mode', 'balanced').replace('_', ' ').title()
+    state = read_state(); perf = state.get('performance_mode', 'balanced').replace('_', ' ').title()
     realm = dict(REALMS).get(state.get('realm', 'dragon_order'), 'Dragon Order')
-    msg = 'Kodi: ' + xbmc.getInfoLabel('System.BuildVersion')
-    msg += '\nSkin: ' + str(skin)
-    msg += '\nRealm: ' + realm
-    msg += '\nPerformance: ' + perf
-    if free:
-        msg += '\nFree storage: ' + str(free) + ' MB'
+    msg = 'Kodi: ' + xbmc.getInfoLabel('System.BuildVersion') + '\nSkin: ' + str(skin) + '\nRealm: ' + realm + '\nPerformance: ' + perf
+    if free: msg += '\nFree storage: ' + str(free) + ' MB'
     xbmcgui.Dialog().textviewer('DragonMax System Information', msg)
 
 
 def repair():
     if not xbmcgui.Dialog().yesno('Repair DragonMax', 'Refresh add-ons and repositories, re-enable DragonMax services, and queue AuraMOD recovery for the next startup?'):
         return
-    xbmc.executebuiltin('UpdateLocalAddons')
-    xbmc.sleep(750)
+    xbmc.executebuiltin('UpdateLocalAddons'); xbmc.sleep(750)
     for addon_id in ('service.dragonmax.voice', 'plugin.program.dragonmaxportal', 'skin.auramod'):
         jsonrpc('Addons.SetAddonEnabled', {'addonid': addon_id, 'enabled': True})
     xbmc.executebuiltin('UpdateAddonRepos')
@@ -174,51 +180,32 @@ def repair():
     notify('Repair queued. Fully exit Kodi and reopen it.')
 
 
-def weather(): xbmc.executebuiltin('ActivateWindow(Weather)')
 def weather_settings(): xbmc.executebuiltin('ActivateWindow(Settings,weather,return)')
 def wallpapers(): xbmc.executebuiltin('ActivateWindow(Pictures,special://home/artwork/wallpapers/,return)')
-def addon_manager(): xbmc.executebuiltin('ActivateWindow(AddonBrowser)')
 def advanced_settings(): xbmc.executebuiltin('ActivateWindow(SettingsSystem)')
 
 
 def build_root():
-    item('Switch Realm', 'realms', folder=True)
-    item('Switch Skin', 'skins', folder=True)
-    item('Performance', 'performance_menu', folder=True)
-    item('Weather', 'weather_menu', folder=True)
-    item('Wallpapers', 'wallpapers')
-    item('Add-ons', 'addons')
-    item('Maintenance', 'maintenance')
-    item('Advanced Settings', 'advanced')
-    item('System Info', 'system_info')
-    item('Repair DragonMax', 'repair')
+    item('Switch Realm', 'realms', folder=True); item('Switch Skin', 'skins', folder=True)
+    item('Performance', 'performance_menu', folder=True); item('Weather', 'open', target='weather')
+    item('Wallpapers', 'wallpapers'); item('Add-ons', 'open', target='addons'); item('Maintenance', 'maintenance')
+    item('Advanced Settings', 'advanced'); item('System Info', 'system_info'); item('Repair DragonMax', 'repair')
     xbmcplugin.endOfDirectory(HANDLE)
 
 
 def build_realms():
     current = read_state().get('realm', 'dragon_order')
-    for slug, name in REALMS:
-        prefix = '✓ ' if slug == current else ''
-        item(prefix + name, 'set_realm', realm=slug)
+    for slug, name in REALMS: item(('✓ ' if slug == current else '') + name, 'set_realm', realm=slug)
     xbmcplugin.endOfDirectory(HANDLE)
 
 
 def build_skins():
-    item('AuraMOD', 'set_skin', skin='skin.auramod')
-    item('Estuary Safe Mode', 'set_skin', skin='skin.estuary')
+    item('AuraMOD', 'set_skin', skin='skin.auramod'); item('Estuary Safe Mode', 'set_skin', skin='skin.estuary')
     xbmcplugin.endOfDirectory(HANDLE)
 
 
 def build_perf():
-    item('Maximum Speed', 'performance', mode='maximum_speed')
-    item('Balanced', 'performance', mode='balanced')
-    item('Visual Quality', 'performance', mode='visual_quality')
-    xbmcplugin.endOfDirectory(HANDLE)
-
-
-def build_weather():
-    item('View Weather', 'weather')
-    item('Weather Settings', 'weather_settings')
+    item('Maximum Speed', 'performance', mode='maximum_speed'); item('Balanced', 'performance', mode='balanced'); item('Visual Quality', 'performance', mode='visual_quality')
     xbmcplugin.endOfDirectory(HANDLE)
 
 
@@ -229,17 +216,14 @@ def main():
     if action == 'realms': return build_realms()
     if action == 'skins': return build_skins()
     if action == 'performance_menu': return build_perf()
-    if action == 'weather_menu': return build_weather()
-    if action == 'set_realm': set_realm(q.get('realm', ['dragon_order'])[0])
-    elif action == 'set_skin': set_skin(q.get('skin', ['skin.auramod'])[0])
-    elif action == 'performance': performance(q.get('mode', ['balanced'])[0])
-    elif action == 'weather': weather()
-    elif action == 'weather_settings': weather_settings()
-    elif action == 'wallpapers': wallpapers()
-    elif action == 'addons': addon_manager()
-    elif action == 'maintenance': maintenance()
-    elif action == 'advanced': advanced_settings()
-    elif action == 'system_info': system_info()
-    elif action == 'repair': repair()
+    if action == 'open': return open_target(q.get('target', ['portal'])[0])
+    if action == 'set_realm': return set_realm(q.get('realm', ['dragon_order'])[0])
+    if action == 'set_skin': return set_skin(q.get('skin', ['skin.auramod'])[0])
+    if action == 'performance': return performance(q.get('mode', ['balanced'])[0])
+    if action == 'wallpapers': return wallpapers()
+    if action == 'maintenance': return maintenance()
+    if action == 'advanced': return advanced_settings()
+    if action == 'system_info': return system_info()
+    if action == 'repair': return repair()
 
 if __name__ == '__main__': main()
