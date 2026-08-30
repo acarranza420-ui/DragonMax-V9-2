@@ -95,7 +95,13 @@ def audit_recursive(addons, errors):
 def audit_portal(z, members, addons, errors):
     if 'plugin.program.dragonmaxportal' not in addons: errors.append('Dragon Portal add-on is not bundled')
     portal_default = 'addons/plugin.program.dragonmaxportal/default.py'
-    if portal_default not in members: errors.append('Dragon Portal runtime entrypoint is missing')
+    if portal_default not in members:
+        errors.append('Dragon Portal runtime entrypoint is missing')
+        portal = ''
+    else:
+        portal = z.read(members[portal_default]).decode('utf-8', errors='ignore')
+    for token in ('Switch Realm','dragon_order','arcane_dominion','crimson_court','temple_guardians','champion_guild','office_consortium','set_realm'):
+        if token not in portal: errors.append('Dragon Portal realm control missing: '+token)
     service_rel = 'addons/service.dragonmax.voice/service.py'
     service = z.read(members[service_rel]).decode('utf-8', errors='ignore') if service_rel in members else ''
     if 'plugin.program.dragonmaxportal' not in service: errors.append('Dragon Voice is not wired to the native Dragon Portal')
@@ -104,21 +110,43 @@ def audit_portal(z, members, addons, errors):
 
 
 def audit_dragonmax_home(z, members, errors):
-    rel = 'addons/skin.auramod/shortcuts/mainmenu.DATA.xml'
-    if rel not in members:
-        errors.append('DragonMax native AuraMOD main menu is missing'); return
+    menu_rel = 'addons/skin.auramod/shortcuts/mainmenu.DATA.xml'
+    home_rel = 'addons/skin.auramod/1080i/Home.xml'
+    if menu_rel not in members:
+        errors.append('DragonMax native AuraMOD main menu is missing')
+    else:
+        try:
+            root = ET.fromstring(z.read(members[menu_rel]).decode('utf-8'))
+            labels = [str(node.findtext('label') or '') for node in root.findall('shortcut')]
+            if labels != DRAGONMAX_HOME:
+                errors.append('AuraMOD would not boot to the DragonMax home; menu labels='+repr(labels))
+            text = z.read(members[menu_rel]).decode('utf-8', errors='ignore')
+            if 'plugin://plugin.program.dragonmaxportal/' not in text:
+                errors.append('DragonMax home does not route to native Dragon Portal')
+        except Exception as exc:
+            errors.append('DragonMax AuraMOD main menu XML invalid: '+str(exc))
+
+    if home_rel not in members:
+        errors.append('DragonMax custom AuraMOD Home.xml is missing')
+        return
     try:
-        root = ET.fromstring(z.read(members[rel]).decode('utf-8'))
+        home_text = z.read(members[home_rel]).decode('utf-8', errors='ignore')
+        ET.fromstring(home_text)
     except Exception as exc:
-        errors.append('DragonMax AuraMOD main menu XML invalid: '+str(exc)); return
-    labels = [str(node.findtext('label') or '') for node in root.findall('shortcut')]
-    if labels != DRAGONMAX_HOME:
-        errors.append('AuraMOD would not boot to the DragonMax home; menu labels='+repr(labels))
-    text = z.read(members[rel]).decode('utf-8', errors='ignore')
-    if 'plugin://plugin.program.dragonmaxportal/' not in text:
-        errors.append('DragonMax home does not route to native Dragon Portal')
-    for token in ('animeuniverse','martialarts','championguild','officeconsortium'):
-        if token not in text: errors.append('DragonMax themed home item missing: '+token)
+        errors.append('DragonMax custom Home.xml invalid: '+str(exc)); return
+
+    required_home_tokens = (
+        'DRAGONMAX', 'DragonMaxRealm', 'DragonMaxRealmName',
+        'ENTER THE DRAGON REALMS', 'TRENDING MOVIES',
+        'plugin.program.dragonmaxportal',
+        'dragon_order_01.png', 'arcane_dominion_01.png',
+        'crimson_court_01.png', 'temple_guardians_01.png',
+        'champion_guild_01.png', 'office_consortium_01.png',
+    )
+    for token in required_home_tokens:
+        if token not in home_text: errors.append('DragonMax custom Home.xml missing: '+token)
+    if 'script.skinshortcuts-template-global-fanart' in home_text:
+        errors.append('DragonMax Home.xml still appears to be stock AuraMOD renderer')
 
 
 def audit_payload_policy(members, errors):
@@ -153,8 +181,8 @@ def main():
         for item in sorted(set(errors)): print('ERROR:', item)
         return 1
     print('DragonMax comprehensive release audit passed.')
-    print('Verified dependency closure, native Dragon Portal, DragonMax-owned AuraMOD home,')
-    print('metadata-driven activation, and protected Fire TV runtime paths.')
+    print('Verified dependency closure, custom DragonMax Home.xml, native realm switching,')
+    print('Dragon Portal wiring, metadata-driven activation, and protected Fire TV runtime paths.')
     return 0
 
 
