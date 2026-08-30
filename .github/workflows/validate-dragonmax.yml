@@ -151,6 +151,9 @@ jobs:
       - name: Run comprehensive release audit
         run: python3 validate_release_audit.py
 
+      - name: Require complete physical launch dependency closure
+        run: python3 validate_dependency_closure.py
+
       - name: Simulate launch experience and Fire TV budgets
         run: python3 validate_launch_experience.py
 
