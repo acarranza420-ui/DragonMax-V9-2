@@ -27,7 +27,24 @@ _FLIGHT_PACK = {
     'plugin.program.autocompletion': 'https://codeload.github.com/henryjfry/repository.thenewdiamond/zip/refs/heads/main',
 }
 
-_builder_state = {'packages': False, 'pruner': False, 'closure': False, 'userdata': False}
+# Kodi profile data that defines the actual DragonMax AuraMOD experience. This
+# is configuration, not volatile device state, so it survives the V9.2 -> V12
+# migration while databases, thumbnails, cache, logs, and guisettings do not.
+_LEGACY_SKIN_PROFILE = (
+    ('addon_data', 'skin.auramod'),
+    ('addon_data', 'script.skinshortcuts'),
+    ('addon_data', 'script.skin.helper.service'),
+    ('addon_data', 'script.skin.helper.widgets'),
+    ('addon_data', 'script.colorbox'),
+)
+
+_builder_state = {
+    'packages': False,
+    'legacy_skin': False,
+    'pruner': False,
+    'closure': False,
+    'userdata': False,
+}
 
 
 def _patch_builder(frame, event, arg):
@@ -43,9 +60,61 @@ def _patch_builder(frame, event, arg):
         packages.update(_FLIGHT_PACK)
         _builder_state['packages'] = True
 
+    reset_userdata = g.get('reset_userdata')
+    if callable(reset_userdata) and not _builder_state['legacy_skin']:
+        original_reset = reset_userdata
+
+        def reset_preserving_dragonmax_skin():
+            stage = g['STAGE']
+            shutil_mod = g['shutil']
+            stash = stage.parent / 'legacy_dragonmax_skin_profile'
+            shutil_mod.rmtree(stash, ignore_errors=True)
+            preserved = []
+
+            for parts in _LEGACY_SKIN_PROFILE:
+                rel = g['Path'](*parts)
+                src = stage / 'userdata' / rel
+                if not src.exists():
+                    continue
+                dst = stash / rel
+                if src.is_dir():
+                    shutil_mod.copytree(src, dst, dirs_exist_ok=True, copy_function=shutil_mod.copyfile)
+                else:
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil_mod.copyfile(src, dst)
+                preserved.append(str(rel).replace('\\', '/'))
+
+            original_reset()
+
+            for parts in _LEGACY_SKIN_PROFILE:
+                rel = g['Path'](*parts)
+                src = stash / rel
+                if not src.exists():
+                    continue
+                dst = stage / 'userdata' / rel
+                if src.is_dir():
+                    shutil_mod.copytree(src, dst, dirs_exist_ok=True, copy_function=shutil_mod.copyfile)
+                else:
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil_mod.copyfile(src, dst)
+
+            if preserved:
+                print('DragonMax legacy skin profile preserved:', ', '.join(preserved))
+                files = []
+                for p in sorted(stash.rglob('*')):
+                    if p.is_file():
+                        files.append(str(p.relative_to(stash)).replace('\\', '/'))
+                print('DragonMax legacy skin profile files:', ', '.join(files[:80]))
+            else:
+                print('WARN no legacy AuraMOD/Skin Shortcuts profile was found to preserve')
+
+        g['reset_userdata'] = reset_preserving_dragonmax_skin
+        _builder_state['legacy_skin'] = True
+
     prune = g.get('prune_development_debris')
     if callable(prune) and not _builder_state['pruner']:
         original = prune
+
         def hardened_prune():
             original()
             stage = g['STAGE'] / 'addons'
@@ -63,33 +132,64 @@ def _patch_builder(frame, event, arg):
                         p.unlink()
                 except OSError:
                     pass
+
         g['prune_development_debris'] = hardened_prune
         _builder_state['pruner'] = True
 
     install_dragonmax = g.get('install_dragonmax_addons')
     if callable(install_dragonmax) and not _builder_state['closure']:
         original_install = install_dragonmax
+
         def install_with_dependency_closure():
             original_install()
-            _closure.bundle_official_dependency_closure(g['STAGE'], g['fetch'], g['extract_addon_zip'], g['fetch_text'])
+            _closure.bundle_official_dependency_closure(
+                g['STAGE'], g['fetch'], g['extract_addon_zip'], g['fetch_text']
+            )
+
         g['install_dragonmax_addons'] = install_with_dependency_closure
         _builder_state['closure'] = True
 
     generate_userdata = g.get('generate_userdata')
     if callable(generate_userdata) and not _builder_state['userdata']:
         original_userdata = generate_userdata
+
         def generate_unified_userdata():
             original_userdata()
             stage = g['STAGE']
             keymap = stage / 'userdata' / 'keymaps' / 'dragonmax.xml'
-            keymap.write_text('<keymap><global><keyboard><menu>ActivateWindow(Programs,plugin://plugin.program.dragonmaxportal/,return)</menu></keyboard></global></keymap>', encoding='utf-8')
+            keymap.write_text(
+                '<keymap><global><keyboard><menu>ActivateWindow(Programs,plugin://plugin.program.dragonmaxportal/,return)</menu></keyboard></global></keymap>',
+                encoding='utf-8',
+            )
             menu_path = stage / 'dragonmax' / 'config' / 'menus.json'
             try:
                 menus = json.loads(menu_path.read_text(encoding='utf-8'))
             except Exception:
                 menus = {}
-            menus['portal'] = ['Switch Skin','Performance','Weather','Wallpapers','Add-ons','Maintenance','Advanced Settings','System Info','Repair DragonMax']
+            menus['portal'] = [
+                'Switch Skin', 'Performance', 'Weather', 'Wallpapers', 'Add-ons',
+                'Maintenance', 'Advanced Settings', 'System Info', 'Repair DragonMax'
+            ]
             menu_path.write_text(json.dumps(menus, indent=2), encoding='utf-8')
+
+            # Sidecar JSON is useful to DragonMax services, but AuraMOD itself
+            # needs real skin/profile files. Require at least one real migrated
+            # configuration file so CI cannot call a stock AuraMOD home valid.
+            skin_profile = stage / 'userdata' / 'addon_data' / 'skin.auramod'
+            shortcuts_profile = stage / 'userdata' / 'addon_data' / 'script.skinshortcuts'
+            real_skin_files = []
+            for root in (skin_profile, shortcuts_profile):
+                if root.is_dir():
+                    real_skin_files.extend(
+                        p for p in root.rglob('*')
+                        if p.is_file() and p.name != 'dragonmax_skin_base.json'
+                    )
+            if not real_skin_files:
+                raise RuntimeError(
+                    'DragonMax home configuration missing: legacy AuraMOD/Skin Shortcuts profile was stripped or absent'
+                )
+            print('DragonMax real AuraMOD profile validated:', len(real_skin_files), 'configuration files')
+
         g['generate_userdata'] = generate_unified_userdata
         _builder_state['userdata'] = True
 
@@ -137,12 +237,22 @@ if _old not in _r.DEFAULT:
 _r.DEFAULT = _r.DEFAULT.replace(_old, _new, 1)
 
 _original_gates = _r.gates
+
 def gates(source):
     _original_gates(source)
-    required = ('finalize_addons','EnableAddon(service.dragonmax.voice)','EnableAddon(plugin.program.dragonmaxportal)','EnableAddon(skin.auramod)','EnableAddon('+"'"+'+aid+'+"'"+')','pending_skin_activation.json','dependency retry')
+    required = (
+        'finalize_addons',
+        'EnableAddon(service.dragonmax.voice)',
+        'EnableAddon(plugin.program.dragonmaxportal)',
+        'EnableAddon(skin.auramod)',
+        'EnableAddon('+"'"+'+aid+'+"'"+')',
+        'pending_skin_activation.json',
+        'dependency retry',
+    )
     for token in required:
         if token not in source:
             raise RuntimeError('Installer finalization/bootstrap gate missing '+token)
+
 _r.gates = gates
 
 from repo_release_v45 import *
