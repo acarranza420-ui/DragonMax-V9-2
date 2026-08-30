@@ -8,6 +8,14 @@ import zipfile
 ROOT = pathlib.Path(__file__).resolve().parent
 PUBLIC = ROOT / 'public'
 CORE_PREFIXES = ('xbmc.', 'kodi.')
+KODI_SYSTEM_ADDONS = {
+    'script.module.pil',
+    'script.module.pycryptodome',
+    'repository.xbmc.org',
+    'resource.language.en_gb',
+    'resource.uisounds.kodi',
+    'skin.estuary',
+}
 ROOTS = ('skin.auramod', 'service.dragonmax.voice', 'plugin.program.dragonmaxportal')
 
 
@@ -48,7 +56,7 @@ def main():
             if aid in seen or aid not in addons: continue
             seen.add(aid)
             for dep,minimum,optional in addons[aid]['imports']:
-                if optional or not dep or dep.startswith(CORE_PREFIXES): continue
+                if optional or not dep or dep.startswith(CORE_PREFIXES) or dep in KODI_SYSTEM_ADDONS: continue
                 if dep not in addons:
                     errors.append(f'{aid} -> {dep}>={minimum} is not bundled')
                     continue
@@ -79,7 +87,7 @@ def main():
         for e in sorted(set(errors)): print('ERROR:',e)
         return 1
     print('DragonMax strict dependency closure gate passed.')
-    print('All mandatory launch dependencies are physically bundled and version-satisfied.')
+    print('All mandatory launch dependencies are bundled or provided by the Kodi 21 system runtime.')
     return 0
 
 
