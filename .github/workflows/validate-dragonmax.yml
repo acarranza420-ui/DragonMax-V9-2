@@ -27,30 +27,14 @@ jobs:
           root = pathlib.Path('public')
           errors=[]
           required_payload_addons = {
-              'skin.auramod',
-              'service.dragonmax.voice',
-              'plugin.program.dragonmaxportal',
-              'script.skin.helper.service',
-              'script.skin.helper.widgets',
-              'script.skinshortcuts',
-              'script.module.unidecode',
-              'script.module.simpleeval',
-              'plugin.program.autocompletion',
-              'plugin.video.themoviedb.helper',
-              'script.module.metadatautils',
-              'script.module.thetvdb',
-              'script.module.musicbrainz',
-              'script.module.jurialmunkey',
-              'script.module.infotagger',
-              'script.module.requests',
-              'script.image.resource.select',
-              'resource.images.moviegenreicons.transparent',
-              'resource.images.studios.coloured',
-              'resource.images.studios.white',
-              'repository.auramod.aio',
-              'repository.jurialmunkey',
-              'repository.marcelveldt',
-              'script.colorbox',
+              'skin.auramod','service.dragonmax.voice','plugin.program.dragonmaxportal',
+              'script.skin.helper.service','script.skin.helper.widgets','script.skinshortcuts',
+              'script.module.unidecode','script.module.simpleeval','plugin.program.autocompletion',
+              'plugin.video.themoviedb.helper','script.module.metadatautils','script.module.thetvdb',
+              'script.module.musicbrainz','script.module.jurialmunkey','script.module.infotagger',
+              'script.module.requests','script.image.resource.select','resource.images.moviegenreicons.transparent',
+              'resource.images.studios.coloured','resource.images.studios.white','repository.auramod.aio',
+              'repository.jurialmunkey','repository.marcelveldt','script.colorbox',
           }
           forbidden_parts={'.git','.github','.idea','.vscode','__pycache__','tests','test','docs','doc'}
           forbidden_suffixes={'.pyc','.pyo','.log','.tmp','.old'}
@@ -65,10 +49,8 @@ jobs:
           try:
               actual=hashlib.md5((root/'addons.xml').read_bytes()).hexdigest()
               expected=(root/'addons.xml.md5').read_text().strip()
-              if actual != expected:
-                  errors.append(f'generated addons.xml.md5 mismatch: {expected} != {actual}')
-          except Exception as exc:
-              errors.append(f'generated repository checksum failed: {exc}')
+              if actual != expected: errors.append(f'generated addons.xml.md5 mismatch: {expected} != {actual}')
+          except Exception as exc: errors.append(f'generated repository checksum failed: {exc}')
 
           try:
               build_doc=json.loads((root/'build.json').read_text())
@@ -78,14 +60,10 @@ jobs:
               build={}
 
           version=str(build.get('version',''))
-          if version != '4.8.0':
-              errors.append(f'unexpected release version: {version!r}')
-          if versions.get('repository.dragonmax') != version:
-              errors.append(f'repository version {versions.get("repository.dragonmax")} != build {version}')
-          if versions.get('plugin.program.dragonmaxwizard') != version:
-              errors.append(f'wizard version {versions.get("plugin.program.dragonmaxwizard")} != build {version}')
-          if int(build.get('install_protocol',0)) < 4:
-              errors.append('generated build does not use install protocol 4+')
+          if version != '4.9.0': errors.append(f'unexpected release version: {version!r}')
+          if versions.get('repository.dragonmax') != version: errors.append(f'repository version {versions.get("repository.dragonmax")} != build {version}')
+          if versions.get('plugin.program.dragonmaxwizard') != version: errors.append(f'wizard version {versions.get("plugin.program.dragonmaxwizard")} != build {version}')
+          if int(build.get('install_protocol',0)) < 4: errors.append('generated build does not use install protocol 4+')
 
           for doc in ('updates.json','themes.json','realms.json'):
               try: json.loads((root/doc).read_text())
@@ -96,72 +74,63 @@ jobs:
               errors.append(f'payload missing: {payload}')
           else:
               minimum=int(build.get('minimum_size_mb',60))*1024*1024
-              if payload.stat().st_size < minimum:
-                  errors.append(f'payload undersized: {payload.stat().st_size}')
+              if payload.stat().st_size < minimum: errors.append(f'payload undersized: {payload.stat().st_size}')
               sha=hashlib.sha256(payload.read_bytes()).hexdigest()
-              if sha != build.get('sha256'):
-                  errors.append('payload SHA-256 mismatch with generated build.json')
+              if sha != build.get('sha256'): errors.append('payload SHA-256 mismatch with generated build.json')
               try:
                   with zipfile.ZipFile(payload) as z:
                       bad=z.testzip()
                       if bad: errors.append(f'corrupt payload member: {bad}')
                       names=z.namelist()
                       normalized=['/'+n.replace('\\','/').strip('/') for n in names]
-
                       for n in normalized:
                           parts=[p for p in n.split('/') if p]
-                          if any(p.lower() in forbidden_parts for p in parts):
-                              errors.append(f'development debris present: {n}')
-                          if pathlib.PurePosixPath(n).suffix.lower() in forbidden_suffixes:
-                              errors.append(f'development file present: {n}')
-                          if '/userdata/Database/' in n or '/userdata/Thumbnails/' in n or '/addons/packages/' in n:
-                              errors.append(f'protected runtime content present: {n}')
+                          if any(p.lower() in forbidden_parts for p in parts): errors.append(f'development debris present: {n}')
+                          if pathlib.PurePosixPath(n).suffix.lower() in forbidden_suffixes: errors.append(f'development file present: {n}')
+                          if '/userdata/Database/' in n or '/userdata/Thumbnails/' in n or '/addons/packages/' in n: errors.append(f'protected runtime content present: {n}')
 
                       for aid in sorted(required_payload_addons):
                           token=f'/addons/{aid}/addon.xml'
-                          if not any(token in n for n in normalized):
-                              errors.append(f'required launch dependency missing from payload: {aid}')
+                          if not any(token in n for n in normalized): errors.append(f'required launch dependency missing from payload: {aid}')
 
                       for required_path in ('/addons/skin.auramod/1080i/Home.xml','/addons/skin.auramod/shortcuts/mainmenu.DATA.xml'):
-                          if not any(required_path in n for n in normalized):
-                              errors.append(f'DragonMax presentation file missing: {required_path}')
+                          if not any(required_path in n for n in normalized): errors.append(f'DragonMax presentation file missing: {required_path}')
 
                       members={n.replace('\\','/').strip('/'):n for n in names}
                       home_key=next((k for k in members if k.endswith('addons/skin.auramod/1080i/Home.xml')),None)
                       portal_key=next((k for k in members if k.endswith('addons/plugin.program.dragonmaxportal/default.py')),None)
+                      menu_key=next((k for k in members if k.endswith('addons/skin.auramod/shortcuts/mainmenu.DATA.xml')),None)
                       if home_key:
                           home=z.read(members[home_key]).decode('utf-8',errors='ignore')
-                          for token in ('type="multiimage"','VisibleChange','WindowOpen','effect="zoom"','action=open&amp;target=movies','action=open&amp;target=tv','action=set_realm'):
+                          for token in ('type="multiimage"','VisibleChange','WindowOpen','effect="zoom"','target=movies','target=tv','target=sports','target=anime','target=music','target=podcasts','>SPORTS<','>ANIME<','>MUSIC<','>PODCASTS<'):
                               if token not in home: errors.append('DragonMax interactive Home missing '+token)
                       if portal_key:
                           portal=z.read(members[portal_key]).decode('utf-8',errors='ignore')
-                          for token in ('def open_target','target','ActivateWindow','set_realm'):
+                          for token in ("'sports'","'anime'","'music'","'podcasts'",'def open_target','ActivateWindow'):
                               if token not in portal: errors.append('Dragon Portal command router missing '+token)
+                      if menu_key:
+                          menu=z.read(members[menu_key]).decode('utf-8',errors='ignore')
+                          for label in ('Sports','Anime','Music','Podcasts'):
+                              if f'<label>{label}</label>' not in menu: errors.append('DragonMax native menu missing '+label)
 
-                      if not any('/dragonmax/install_manifest.json' in n for n in normalized):
-                          errors.append('install manifest missing from payload')
-              except Exception as exc:
-                  errors.append(f'payload ZIP validation failed: {exc}')
+                      if not any('/dragonmax/install_manifest.json' in n for n in normalized): errors.append('install manifest missing from payload')
+              except Exception as exc: errors.append(f'payload ZIP validation failed: {exc}')
 
           for addon_id in ('repository.dragonmax','plugin.program.dragonmaxwizard'):
               zpath=root/f'{addon_id}-{version}.zip'
-              if not zpath.is_file():
-                  errors.append(f'installer artifact missing: {zpath}')
+              if not zpath.is_file(): errors.append(f'installer artifact missing: {zpath}')
               else:
                   try:
                       with zipfile.ZipFile(zpath) as z:
                           bad=z.testzip()
                           if bad: errors.append(f'{zpath.name} corrupt member: {bad}')
-                  except Exception as exc:
-                      errors.append(f'{zpath.name} invalid: {exc}')
+                  except Exception as exc: errors.append(f'{zpath.name} invalid: {exc}')
 
-          if build.get('ready'):
-              errors.append('CI must not publish ready=true before a real Fire TV validation pass')
-
+          if build.get('ready'): errors.append('CI must not publish ready=true before a real Fire TV validation pass')
           if errors:
               print('\n'.join('ERROR: '+e for e in errors))
               sys.exit(1)
-          print('DragonMax 4.8 animated interactive release passed expanded Omega validation.')
+          print('DragonMax 4.9 animated media hub passed expanded Omega validation.')
           PY
 
       - name: Run comprehensive release audit
