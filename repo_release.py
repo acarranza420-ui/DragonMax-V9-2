@@ -24,6 +24,7 @@ _FLIGHT_PACK = {
     'resource.images.studios.coloured': 'https://mirrors.kodi.tv/addons/omega/resource.images.studios.coloured/resource.images.studios.coloured-0.0.24.zip',
     'resource.images.studios.white': 'https://mirrors.kodi.tv/addons/omega/resource.images.studios.white/resource.images.studios.white-0.0.34.zip',
     'script.skinshortcuts': 'https://github.com/MikeSiLVO/script.skinshortcuts/releases/download/v2.0.3/script.skinshortcuts-2.0.3.zip',
+    'plugin.program.autocompletion': 'https://codeload.github.com/henryjfry/repository.thenewdiamond/zip/refs/heads/main',
 }
 
 _builder_state = {'packages': False, 'pruner': False, 'closure': False, 'userdata': False}
