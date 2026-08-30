@@ -78,7 +78,7 @@ jobs:
               build={}
 
           version=str(build.get('version',''))
-          if version != '4.7.0':
+          if version != '4.8.0':
               errors.append(f'unexpected release version: {version!r}')
           if versions.get('repository.dragonmax') != version:
               errors.append(f'repository version {versions.get("repository.dragonmax")} != build {version}')
@@ -126,6 +126,18 @@ jobs:
                           if not any(required_path in n for n in normalized):
                               errors.append(f'DragonMax presentation file missing: {required_path}')
 
+                      members={n.replace('\\','/').strip('/'):n for n in names}
+                      home_key=next((k for k in members if k.endswith('addons/skin.auramod/1080i/Home.xml')),None)
+                      portal_key=next((k for k in members if k.endswith('addons/plugin.program.dragonmaxportal/default.py')),None)
+                      if home_key:
+                          home=z.read(members[home_key]).decode('utf-8',errors='ignore')
+                          for token in ('type="multiimage"','VisibleChange','WindowOpen','effect="zoom"','action=open&amp;target=movies','action=open&amp;target=tv','action=set_realm'):
+                              if token not in home: errors.append('DragonMax interactive Home missing '+token)
+                      if portal_key:
+                          portal=z.read(members[portal_key]).decode('utf-8',errors='ignore')
+                          for token in ('def open_target','target','ActivateWindow','set_realm'):
+                              if token not in portal: errors.append('Dragon Portal command router missing '+token)
+
                       if not any('/dragonmax/install_manifest.json' in n for n in normalized):
                           errors.append('install manifest missing from payload')
               except Exception as exc:
@@ -149,7 +161,7 @@ jobs:
           if errors:
               print('\n'.join('ERROR: '+e for e in errors))
               sys.exit(1)
-          print('DragonMax 4.7 presentation release passed expanded Omega dependency validation.')
+          print('DragonMax 4.8 animated interactive release passed expanded Omega validation.')
           PY
 
       - name: Run comprehensive release audit
