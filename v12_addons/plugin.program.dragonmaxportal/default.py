@@ -126,8 +126,9 @@ def open_target(target):
         'movies': 'ActivateWindow(Videos,"plugin://plugin.video.themoviedb.helper/?info=dir_movie&widget=True",return)',
         'tv': 'ActivateWindow(Videos,"plugin://plugin.video.themoviedb.helper/?info=dir_tv&widget=True",return)',
         'sports': 'ActivateWindow(Videos,"addons://sources/video/",return)',
-        'music': 'ActivateWindow(Music)',
-        'podcasts': 'ActivateWindow(Music,"addons://sources/audio/",return)',
+        'music': 'ActivateWindow(MusicFiles)',
+        'music_addons': 'ActivateWindow(MusicFiles,"addons://sources/audio/",return)',
+        'podcasts': 'ActivateWindow(MusicFiles,"addons://sources/audio/",return)',
         'settings': 'ActivateWindow(Settings)',
         'addons': 'ActivateWindow(AddonBrowser)',
         'weather': 'ActivateWindow(Weather)',
@@ -202,7 +203,7 @@ def advanced_settings(): xbmc.executebuiltin('ActivateWindow(SettingsSystem)')
 
 def build_root():
     item('Sports', 'open', target='sports'); item('Anime', 'open', target='anime')
-    item('Music', 'open', target='music'); item('Podcasts', 'open', target='podcasts')
+    item('Music', 'open', target='music'); item('Music Add-ons', 'open', target='music_addons'); item('Podcasts', 'open', target='podcasts')
     item('Switch Realm', 'realms', folder=True); item('Switch Skin', 'skins', folder=True)
     item('Performance', 'performance_menu', folder=True); item('Weather', 'open', target='weather')
     item('Wallpapers', 'wallpapers'); item('Add-ons', 'open', target='addons'); item('Maintenance', 'maintenance')
