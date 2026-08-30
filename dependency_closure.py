@@ -4,6 +4,7 @@
 Third-party launch dependencies must already be explicitly bundled by DragonMax.
 Missing dependencies that exist in Kodi's official Omega catalog are downloaded
 and staged recursively until every non-optional launch dependency is closed.
+Kodi-bundled system modules are accepted from the Kodi 21 runtime itself.
 """
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -11,6 +12,14 @@ from pathlib import Path
 KODI_OMEGA_INDEX = 'https://mirrors.kodi.tv/addons/omega/addons.xml'
 KODI_OMEGA_BASE = 'https://mirrors.kodi.tv/addons/omega'
 CORE_PREFIXES = ('xbmc.', 'kodi.')
+KODI_SYSTEM_ADDONS = {
+    'script.module.pil',
+    'script.module.pycryptodome',
+    'repository.xbmc.org',
+    'resource.language.en_gb',
+    'resource.uisounds.kodi',
+    'skin.estuary',
+}
 LAUNCH_ROOTS = ('skin.auramod', 'service.dragonmax.voice', 'plugin.program.dragonmaxportal')
 
 
@@ -82,7 +91,7 @@ def reachable_requirements(metas):
             continue
         seen.add(addon_id)
         for dep, minimum, optional in metas[addon_id]['imports']:
-            if optional or not dep or dep.startswith(CORE_PREFIXES):
+            if optional or not dep or dep.startswith(CORE_PREFIXES) or dep in KODI_SYSTEM_ADDONS:
                 continue
             requirements.append((addon_id, dep, minimum or '0'))
             if dep in metas:
