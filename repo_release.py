@@ -6,6 +6,11 @@ import dependency_closure as _closure
 import repo_release_v45 as _r
 
 _r.ET = ET
+_RELEASE_VERSION = '4.6.0'
+_r.VERSION = _RELEASE_VERSION
+_r.REPO = _r.REPO.replace('4.5.0', _RELEASE_VERSION)
+_r.ADDON = _r.ADDON.replace('4.5.0', _RELEASE_VERSION)
+_r.DEFAULT = _r.DEFAULT.replace('4.5.0', _RELEASE_VERSION)
 
 _FLIGHT_PACK = {
     'script.skin.helper.service': 'https://raw.githubusercontent.com/kodi-community-addons/repository.marcelveldt/master/matrix/script.skin.helper.service/script.skin.helper.service-1.1.43.zip',
@@ -83,7 +88,7 @@ _DRAGONMAX_MAINMENU = '''<?xml version="1.0" encoding="UTF-8"?>
 </shortcuts>
 '''
 
-_builder_state = {'packages': False, 'pruner': False, 'closure': False, 'userdata': False}
+_builder_state = {'version': False, 'packages': False, 'pruner': False, 'closure': False, 'userdata': False}
 
 
 def _patch_builder(frame, event, arg):
@@ -92,8 +97,13 @@ def _patch_builder(frame, event, arg):
     filename = frame.f_code.co_filename.replace('\\', '/')
     if not filename.endswith('/build_v12.py'):
         return _patch_builder
-
     g = frame.f_globals
+
+    if 'RELEASE_VERSION' in g and 'BUILD' in g and not _builder_state['version']:
+        g['RELEASE_VERSION'] = _RELEASE_VERSION
+        g['BUILD'] = g['OUT'] / 'builds' / ('DragonMax_V12_Unified_Build_Content-'+_RELEASE_VERSION+'.zip')
+        _builder_state['version'] = True
+
     packages = g.get('BOOTSTRAP_PACKAGES')
     if isinstance(packages, dict) and not _builder_state['packages']:
         packages.update(_FLIGHT_PACK)
@@ -134,16 +144,12 @@ def _patch_builder(frame, event, arg):
             stage = g['STAGE']
             keymap = stage / 'userdata' / 'keymaps' / 'dragonmax.xml'
             keymap.write_text('<keymap><global><keyboard><menu>ActivateWindow(Programs,plugin://plugin.program.dragonmaxportal/,return)</menu></keyboard></global></keymap>', encoding='utf-8')
-
             menu_path = stage / 'dragonmax' / 'config' / 'menus.json'
             try: menus = json.loads(menu_path.read_text(encoding='utf-8'))
             except Exception: menus = {}
             menus['portal'] = ['Switch Skin','Performance','Weather','Wallpapers','Add-ons','Maintenance','Advanced Settings','System Info','Repair DragonMax']
             menu_path.write_text(json.dumps(menus, indent=2), encoding='utf-8')
 
-            # AuraMOD reads Skin Shortcuts defaults from the skin package itself.
-            # Replacing this file makes DragonMax the clean-install home rather
-            # than shipping JSON sidecars AuraMOD never consumes.
             native_menu = stage / 'addons' / 'skin.auramod' / 'shortcuts' / 'mainmenu.DATA.xml'
             native_menu.parent.mkdir(parents=True, exist_ok=True)
             native_menu.write_text(_DRAGONMAX_MAINMENU, encoding='utf-8')
@@ -169,6 +175,11 @@ _boot_new = "xbmc.executebuiltin('UpdateLocalAddons'); xbmc.sleep(1500); [xbmc.e
 if _boot_old not in _r.DEFAULT: raise RuntimeError('DragonMax dependency-repository bootstrap injection point not found')
 _r.DEFAULT = _r.DEFAULT.replace(_boot_old, _boot_new, 1)
 
+_filter_old = "if active_auramod(home) and r.startswith('addons/skin.auramod/'): continue"
+_filter_new = "if active_auramod(home) and r.startswith('addons/skin.auramod/') and r!='addons/skin.auramod/shortcuts/mainmenu.DATA.xml': continue"
+if _filter_old not in _r.DEFAULT: raise RuntimeError('AuraMOD preservation filter injection point not found')
+_r.DEFAULT = _r.DEFAULT.replace(_filter_old, _filter_new, 1)
+
 _wait_old = "deadline=time.time()+120\n  while time.time()<deadline:\n   unresolved=[d for d in missing if not addon_installed(d) and not os.path.isdir(os.path.join(home,'addons',d))]\n   if not unresolved: break\n   if p.iscanceled(): raise RuntimeError('Installation cancelled during dependency setup')\n   xbmc.sleep(2000)\n  unresolved=[d for d in missing if not addon_installed(d) and not os.path.isdir(os.path.join(home,'addons',d))]\n  if unresolved: raise RuntimeError('AuraMOD dependency installation did not complete: '+', '.join(unresolved))"
 _wait_new = "deadline=time.time()+120\n  while time.time()<deadline:\n   unresolved=[d for d in missing if not addon_installed(d) and not os.path.isdir(os.path.join(home,'addons',d))]\n   if not unresolved: break\n   if p.iscanceled(): raise RuntimeError('Installation cancelled during dependency setup')\n   xbmc.sleep(2000)\n  unresolved=[d for d in missing if not addon_installed(d) and not os.path.isdir(os.path.join(home,'addons',d))]\n  if unresolved:\n   xbmc.executebuiltin('UpdateAddonRepos'); xbmc.sleep(5000)\n   for dep in unresolved: xbmc.executebuiltin('InstallAddon('+dep+')')\n   deadline=time.time()+90\n   while time.time()<deadline:\n    unresolved=[d for d in unresolved if not addon_installed(d) and not os.path.isdir(os.path.join(home,'addons',d))]\n    if not unresolved: break\n    if p.iscanceled(): raise RuntimeError('Installation cancelled during dependency retry')\n    xbmc.sleep(2000)\n  if unresolved: raise RuntimeError('AuraMOD dependency installation did not complete after retry: '+', '.join(unresolved))"
 if _wait_old not in _r.DEFAULT: raise RuntimeError('DragonMax dependency wait injection point not found')
@@ -181,11 +192,25 @@ def finalize_addons():
     xbmc.executebuiltin('EnableAddon(service.dragonmax.voice)')
     xbmc.executebuiltin('EnableAddon(plugin.program.dragonmaxportal)')
     xbmc.executebuiltin('EnableAddon(skin.auramod)')
+
+    # Remove only AuraMOD's generated Skin Shortcuts user/cache files so this
+    # install cannot retain the stock menu from an earlier failed candidate.
+    shortcuts = xbmcvfs.translatePath('special://profile/addon_data/script.skinshortcuts/')
+    try:
+        if os.path.isdir(shortcuts):
+            for name in os.listdir(shortcuts):
+                if name.startswith('skin.auramod'):
+                    path = os.path.join(shortcuts, name)
+                    if os.path.isfile(path) or os.path.islink(path): os.remove(path)
+                    elif os.path.isdir(path): shutil.rmtree(path, ignore_errors=True)
+    except Exception as exc:
+        log('AuraMOD Skin Shortcuts cache reset warning: '+str(exc), xbmc.LOGWARNING)
+
     profile = xbmcvfs.translatePath('special://profile/addon_data/service.dragonmax.voice/')
     os.makedirs(profile, exist_ok=True)
     marker = os.path.join(profile, 'pending_skin_activation.json')
     with open(marker, 'w', encoding='utf-8') as f:
-        json.dump({'skin': 'skin.auramod', 'wizard_version': VERSION}, f)
+        json.dump({'skin': 'skin.auramod', 'wizard_version': VERSION, 'rebuild_menu': True}, f)
 '''
 if '\ndef finalize_addons():' not in _r.DEFAULT:
     _r.DEFAULT = _r.DEFAULT.replace('\ndef main():', _FINALIZER + '\ndef main():', 1)
@@ -198,7 +223,7 @@ _r.DEFAULT = _r.DEFAULT.replace(_old, _new, 1)
 _original_gates = _r.gates
 def gates(source):
     _original_gates(source)
-    required = ('finalize_addons','EnableAddon(service.dragonmax.voice)','EnableAddon(plugin.program.dragonmaxportal)','EnableAddon(skin.auramod)','EnableAddon('+"'"+'+aid+'+"'"+')','pending_skin_activation.json','dependency retry')
+    required = ('finalize_addons','EnableAddon(service.dragonmax.voice)','EnableAddon(plugin.program.dragonmaxportal)','EnableAddon(skin.auramod)','pending_skin_activation.json','dependency retry','mainmenu.DATA.xml','name.startswith(\'skin.auramod\')')
     for token in required:
         if token not in source: raise RuntimeError('Installer finalization/bootstrap gate missing '+token)
 _r.gates = gates
