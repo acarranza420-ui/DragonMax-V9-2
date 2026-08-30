@@ -93,24 +93,30 @@ jobs:
                           token=f'/addons/{aid}/addon.xml'
                           if not any(token in n for n in normalized): errors.append(f'required launch dependency missing from payload: {aid}')
 
-                      for required_path in ('/addons/skin.auramod/1080i/Home.xml','/addons/skin.auramod/shortcuts/mainmenu.DATA.xml'):
-                          if not any(required_path in n for n in normalized): errors.append(f'DragonMax presentation file missing: {required_path}')
-
                       members={n.replace('\\','/').strip('/'):n for n in names}
                       home_key=next((k for k in members if k.endswith('addons/skin.auramod/1080i/Home.xml')),None)
                       portal_key=next((k for k in members if k.endswith('addons/plugin.program.dragonmaxportal/default.py')),None)
                       menu_key=next((k for k in members if k.endswith('addons/skin.auramod/shortcuts/mainmenu.DATA.xml')),None)
+
+                      if not home_key: errors.append('DragonMax Home.xml missing')
+                      if not portal_key: errors.append('Dragon Portal router missing')
+                      if not menu_key: errors.append('DragonMax native menu missing')
+
                       if home_key:
                           home=z.read(members[home_key]).decode('utf-8',errors='ignore')
                           for token in ('type="multiimage"','VisibleChange','WindowOpen','effect="zoom"','target=movies','target=tv','target=sports','target=anime','target=music','target=podcasts','>SPORTS<','>ANIME<','>MUSIC<','>PODCASTS<'):
                               if token not in home: errors.append('DragonMax interactive Home missing '+token)
+
                       if portal_key:
                           portal=z.read(members[portal_key]).decode('utf-8',errors='ignore')
-                          for token in ("'sports'","'anime'","'music'","'podcasts'",'def open_target','ActivateWindow'):
-                              if token not in portal: errors.append('Dragon Portal command router missing '+token)
+                          for token in ('MEDIA_SECTIONS','def build_section','Browse ','Add-ons Source','video_addons','audio_addons',"'movies'", "'tv'", "'sports'", "'anime'", "'music'", "'podcasts'"):
+                              if token not in portal: errors.append('Dragon Portal section/add-on routing missing '+token)
+                          for label in ('Movies','TV Shows','Sports','Anime','Music','Podcasts'):
+                              if label not in portal: errors.append('Dragon Portal media section missing '+label)
+
                       if menu_key:
                           menu=z.read(members[menu_key]).decode('utf-8',errors='ignore')
-                          for label in ('Sports','Anime','Music','Podcasts'):
+                          for label in ('Movies','TV Shows','Sports','Anime','Music','Podcasts'):
                               if f'<label>{label}</label>' not in menu: errors.append('DragonMax native menu missing '+label)
 
                       if not any('/dragonmax/install_manifest.json' in n for n in normalized): errors.append('install manifest missing from payload')
@@ -130,7 +136,7 @@ jobs:
           if errors:
               print('\n'.join('ERROR: '+e for e in errors))
               sys.exit(1)
-          print('DragonMax 4.9 animated media hub passed expanded Omega validation.')
+          print('DragonMax 4.9 animated media hub with per-section add-on sources passed expanded Omega validation.')
           PY
 
       - name: Run comprehensive release audit
