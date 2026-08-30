@@ -29,9 +29,13 @@ jobs:
           required_payload_addons = {
               'skin.auramod',
               'service.dragonmax.voice',
+              'plugin.program.dragonmaxportal',
               'script.skin.helper.service',
               'script.skin.helper.widgets',
               'script.skinshortcuts',
+              'script.module.unidecode',
+              'script.module.simpleeval',
+              'plugin.program.autocompletion',
               'plugin.video.themoviedb.helper',
               'script.module.metadatautils',
               'script.module.thetvdb',
@@ -143,6 +147,9 @@ jobs:
               sys.exit(1)
           print('DragonMax launch-candidate distribution passed expanded Omega dependency validation.')
           PY
+
+      - name: Run comprehensive release audit
+        run: python3 validate_release_audit.py
 
       - name: Simulate launch experience and Fire TV budgets
         run: python3 validate_launch_experience.py
