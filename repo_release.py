@@ -24,6 +24,7 @@ _FLIGHT_PACK = {
     'script.skinshortcuts': 'https://github.com/MikeSiLVO/script.skinshortcuts/releases/download/v2.0.3/script.skinshortcuts-2.0.3.zip',
     'script.module.unidecode': 'https://mirrors.kodi.tv/addons/omega/script.module.unidecode/script.module.unidecode-1.3.6.zip',
     'script.module.simpleeval': 'https://mirrors.kodi.tv/addons/omega/script.module.simpleeval/script.module.simpleeval-0.9.13.zip',
+    'plugin.program.autocompletion': 'https://mirrors.kodi.tv/addons/matrix/plugin.program.autocompletion/plugin.program.autocompletion-2.0.5.zip',
 }
 
 _builder_state = {'packages': False, 'pruner': False}
