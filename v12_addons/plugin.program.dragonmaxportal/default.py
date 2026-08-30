@@ -15,6 +15,7 @@ HANDLE = int(sys.argv[1])
 BASE = sys.argv[0]
 PROFILE = xbmcvfs.translatePath('special://profile/addon_data/service.dragonmax.voice/')
 STATE_FILE = os.path.join(PROFILE, 'state.json')
+PENDING_SKIN_FILE = os.path.join(PROFILE, 'pending_skin_activation.json')
 
 
 def url(action, **kwargs):
@@ -34,6 +35,11 @@ def notify(msg):
     xbmcgui.Dialog().notification('Dragon Portal', msg, xbmcgui.NOTIFICATION_INFO, 2600)
 
 
+def ensure_profile():
+    if not xbmcvfs.exists(PROFILE):
+        xbmcvfs.mkdirs(PROFILE)
+
+
 def read_state():
     try:
         with xbmcvfs.File(STATE_FILE, 'r') as f:
@@ -42,11 +48,14 @@ def read_state():
         return {}
 
 
-def write_state(data):
-    if not xbmcvfs.exists(PROFILE):
-        xbmcvfs.mkdirs(PROFILE)
-    with xbmcvfs.File(STATE_FILE, 'w') as f:
+def write_json(path, data):
+    ensure_profile()
+    with xbmcvfs.File(path, 'w') as f:
         f.write(json.dumps(data, indent=2))
+
+
+def write_state(data):
+    write_json(STATE_FILE, data)
 
 
 def jsonrpc(method, params=None):
@@ -127,11 +136,15 @@ def system_info():
 
 
 def repair():
-    xbmc.executebuiltin('RunScript(service.dragonmax.voice)')
+    if not xbmcgui.Dialog().yesno('Repair DragonMax', 'Refresh add-ons and repositories, re-enable DragonMax services, and queue AuraMOD recovery for the next startup?'):
+        return
     xbmc.executebuiltin('UpdateLocalAddons')
-    xbmc.sleep(1000)
+    xbmc.sleep(750)
+    for addon_id in ('service.dragonmax.voice', 'plugin.program.dragonmaxportal', 'skin.auramod'):
+        jsonrpc('Addons.SetAddonEnabled', {'addonid': addon_id, 'enabled': True})
     xbmc.executebuiltin('UpdateAddonRepos')
-    notify('DragonMax repair cycle requested.')
+    write_json(PENDING_SKIN_FILE, {'skin': 'skin.auramod', 'source': 'dragon_portal_repair'})
+    notify('Repair queued. Fully exit Kodi and reopen it.')
 
 
 def weather():
