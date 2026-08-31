@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Deterministic DragonMax 4.9 release builder."""
-import hashlib
 import json
 import shutil
 import sys
@@ -14,7 +13,7 @@ import build_v12 as b
 
 VERSION = '4.9.0'
 base = release._base
-ASSET_ROOT = b.ROOT / 'v49_assets'
+ASSET_ROOT = b.ROOT / 'v12_assets'
 REALMS = ('dragon_order','arcane_dominion','crimson_court','temple_guardians','champion_guild','office_consortium')
 
 b.RELEASE_VERSION = VERSION
@@ -23,12 +22,6 @@ b.BOOTSTRAP_PACKAGES.update(base._FLIGHT_PACK)
 if 'media' not in b.RUNTIME_ROOTS:
     b.RUNTIME_ROOTS = tuple(b.RUNTIME_ROOTS) + ('media',)
 
-# 4.9 owns JPG presentation assets. Do not allow the old generated PNG paths
-# to remain wired into Home.xml.
-base._DRAGONMAX_HOME_XML = (base._DRAGONMAX_HOME_XML
-    .replace('dragon_order_hero_01.png', 'dragon_order_hero_01.jpg')
-    .replace('dragon_order_portal.png', 'dragon_order_portal.jpg'))
-release._DRAGONMAX_HOME_XML = base._DRAGONMAX_HOME_XML
 
 def patch_wizard(default):
     default = default.replace(
@@ -112,9 +105,7 @@ b.fetch = resilient_fetch
 _original_install = b.install_dragonmax_addons
 def install_dragonmax_with_closure():
     _original_install()
-    base._closure.bundle_official_dependency_closure(
-        b.STAGE, b.fetch, b.extract_addon_zip, b.fetch_text
-    )
+    base._closure.bundle_official_dependency_closure(b.STAGE, b.fetch, b.extract_addon_zip, b.fetch_text)
     b.prune_development_debris()
     for p in sorted(list((b.STAGE / 'addons').rglob('*')), key=lambda x: len(x.parts), reverse=True):
         if any(part.lower() in b.DEV_DIR_NAMES for part in p.relative_to(b.STAGE).parts):
@@ -126,79 +117,71 @@ def install_dragonmax_with_closure():
 b.install_dragonmax_addons = install_dragonmax_with_closure
 
 
-def _require_real_asset(path):
-    if not path.is_file() or path.stat().st_size < 1000:
-        raise RuntimeError('Required DragonMax 4.9 real asset missing: '+str(path))
+def require_asset(path, minimum):
+    if not path.is_file() or path.stat().st_size < minimum:
+        raise RuntimeError('Required DragonMax real asset missing/undersized: '+str(path))
     data = path.read_bytes()
-    if path.suffix.lower() in ('.jpg','.jpeg') and not data.startswith(b'\xff\xd8\xff'):
+    ext = path.suffix.lower()
+    if ext in ('.jpg','.jpeg') and not data.startswith(b'\xff\xd8\xff'):
         raise RuntimeError('DragonMax JPG asset corrupt: '+str(path))
-    if path.suffix.lower() == '.png' and not data.startswith(b'\x89PNG\r\n\x1a\n'):
+    if ext == '.png' and not data.startswith(b'\x89PNG\r\n\x1a\n'):
         raise RuntimeError('DragonMax PNG asset corrupt: '+str(path))
     return data
 
 
-def _copy_repeated(src, target_dir, names):
-    data = _require_real_asset(src)
-    if target_dir.exists():
-        shutil.rmtree(target_dir)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    for name in names:
-        (target_dir / name).write_bytes(data)
+def copy_asset(src, dst, minimum):
+    data = require_asset(src, minimum)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_bytes(data)
+    return data
+
 
 _original_media = b.generate_media
 def generate_dragonmax_media():
     _original_media()
 
-    # Replace every primary realm wallpaper/hero with recovered V12 artwork.
-    # Synthetic gradients are physically removed from these directories.
-    source_hashes = set()
+    # Kill synthetic primary visual directories first. There is deliberately no
+    # fallback: recovered source art must exist or the release fails.
+    for rel in ('artwork/wallpapers','artwork/hero_banners','artwork/realm_crests','artwork/portal_graphics'):
+        target = b.STAGE / rel
+        if target.exists(): shutil.rmtree(target)
+
     for realm in REALMS:
-        src = ASSET_ROOT / 'wallpapers' / realm / f'{realm}_01.jpg'
-        source_hashes.add(hashlib.sha256(_require_real_asset(src)).hexdigest())
-        _copy_repeated(src, b.STAGE / 'artwork' / 'wallpapers' / realm,
-                       [f'{realm}_{i:02d}.jpg' for i in range(1,9)])
-        _copy_repeated(src, b.STAGE / 'artwork' / 'hero_banners' / realm,
-                       [f'{realm}_hero_{i:02d}.jpg' for i in range(1,4)])
-    if len(source_hashes) != len(REALMS):
-        raise RuntimeError('DragonMax 4.9 realm artwork is not unique across all six realms')
+        src = ASSET_ROOT / 'artwork' / 'wallpapers' / realm / f'{realm}_01.jpg'
+        copy_asset(src, b.STAGE / 'artwork' / 'wallpapers' / realm / f'{realm}_01.jpg', 2500)
+        crest = ASSET_ROOT / 'artwork' / 'realm_crests' / f'{realm}_crest.png'
+        copy_asset(crest, b.STAGE / 'artwork' / 'realm_crests' / f'{realm}_crest.png', 500)
 
-    crest_src = ASSET_ROOT / 'crests' / 'dragon_order_crest.png'
-    crest_dir = b.STAGE / 'artwork' / 'realm_crests'
-    crest_dir.mkdir(parents=True, exist_ok=True)
-    (crest_dir / 'dragon_order_crest.png').write_bytes(_require_real_asset(crest_src))
+    portal = ASSET_ROOT / 'artwork' / 'portal_graphics' / 'dragon_order_portal.jpg'
+    copy_asset(portal, b.STAGE / 'artwork' / 'portal_graphics' / 'dragon_order_portal.jpg', 2500)
 
-    portal_src = ASSET_ROOT / 'portal' / 'dragon_order_portal.jpg'
-    portal_dir = b.STAGE / 'artwork' / 'portal_graphics'
-    portal_dir.mkdir(parents=True, exist_ok=True)
-    (portal_dir / 'dragon_order_portal.jpg').write_bytes(_require_real_asset(portal_src))
-    old_portal = portal_dir / 'dragon_order_portal.png'
-    if old_portal.exists(): old_portal.unlink()
-
-    splash_src = ASSET_ROOT / 'startup' / 'dragonmax_static_splash.jpg'
-    splash_data = _require_real_asset(splash_src)
+    splash = ASSET_ROOT / 'startup' / 'dragonmax_static_splash.jpg'
+    splash_data = require_asset(splash, 5000)
     startup = b.STAGE / 'startup'
     startup.mkdir(parents=True, exist_ok=True)
     (startup / 'dragonmax_static_splash.jpg').write_bytes(splash_data)
-    old_splash = startup / 'dragonmax_static_splash.png'
-    if old_splash.exists(): old_splash.unlink()
-
+    for bad in (startup / 'dragonmax_static_splash.png', b.STAGE / 'media' / 'splash.png'):
+        if bad.exists(): bad.unlink()
     media = b.STAGE / 'media'
     media.mkdir(parents=True, exist_ok=True)
     (media / 'splash.jpg').write_bytes(splash_data)
-    wrong_png = media / 'splash.png'
-    if wrong_png.exists(): wrong_png.unlink()
 
-    print('DragonMax 4.9 recovered realm artwork staged; synthetic primaries removed')
+    # Byte-level release-source verification, not "a filename exists" theater.
+    for realm in REALMS:
+        require_asset(b.STAGE / 'artwork' / 'wallpapers' / realm / f'{realm}_01.jpg', 2500)
+        require_asset(b.STAGE / 'artwork' / 'realm_crests' / f'{realm}_crest.png', 500)
+    require_asset(b.STAGE / 'artwork' / 'portal_graphics' / 'dragon_order_portal.jpg', 2500)
+    require_asset(b.STAGE / 'media' / 'splash.jpg', 5000)
+    print('DragonMax recovered visual core staged and verified')
     print('DragonMax Kodi startup splash staged in media/splash.jpg')
 b.generate_media = generate_dragonmax_media
+
 
 _original_userdata = b.generate_userdata
 def generate_dragonmax_userdata():
     _original_userdata()
     stage = b.STAGE
 
-    # Harden the deferred skin switch. If the installer could not switch AuraMOD
-    # immediately, the startup service must finish activation and return Home.
     voice = stage / 'addons' / 'service.dragonmax.voice' / 'service.py'
     voice_text = voice.read_text(encoding='utf-8')
     success_marker = "if active_skin == target_skin:\n"
@@ -211,50 +194,52 @@ def generate_dragonmax_userdata():
             "            xbmc.executebuiltin('Skin.SetString(DragonMaxRealm,dragon_order)')\n"
             "            xbmc.executebuiltin('Skin.SetString(DragonMaxRealmName,Dragon Order)')\n"
             "            xbmc.executebuiltin('ActivateWindow(Home)')\n"
-            "            xbmc.sleep(300)\n",
-            1)
+            "            xbmc.sleep(300)\n", 1)
     compile(voice_text, 'service.dragonmax.voice/service.py', 'exec')
     voice.write_text(voice_text, encoding='utf-8')
 
-    keymap = stage / 'userdata' / 'keymaps' / 'dragonmax.xml'
-    keymap.parent.mkdir(parents=True, exist_ok=True)
-    keymap.write_text('<keymap><global><keyboard><menu>ActivateWindow(Programs,plugin://plugin.program.dragonmaxportal/,return)</menu></keyboard></global></keymap>',encoding='utf-8')
     pending = stage / 'userdata' / 'addon_data' / 'service.dragonmax.voice' / 'pending_skin_activation.json'
     pending.parent.mkdir(parents=True, exist_ok=True)
     pending.write_text(json.dumps({'skin':'skin.auramod','requested_by':'dragonmax-4.9-installer','show_startup_splash':True,'target_window':'home'},indent=2),encoding='utf-8')
+
     menu_path = stage / 'dragonmax' / 'config' / 'menus.json'
     try: menus = json.loads(menu_path.read_text(encoding='utf-8'))
     except Exception: menus = {}
     menus['home'] = ['Dragon Portal','Continue Watching','Movies','TV Shows','Sports','Anime','Music','Podcasts','Settings']
     menus['portal'] = ['Movies','TV Shows','Sports','Anime','Music','Podcasts','Switch Realm','Switch Skin','Performance','Weather','Wallpapers','All Add-ons','Martial Arts','Champion Guild','Office Consortium','Maintenance','Advanced Settings','System Info','Repair DragonMax']
     menu_path.write_text(json.dumps(menus, indent=2), encoding='utf-8')
+
     native_menu = stage / 'addons' / 'skin.auramod' / 'shortcuts' / 'mainmenu.DATA.xml'
     native_menu.parent.mkdir(parents=True, exist_ok=True)
     native_menu.write_text(base._DRAGONMAX_MAINMENU, encoding='utf-8')
     home = stage / 'addons' / 'skin.auramod' / '1080i' / 'Home.xml'
     home.write_text(base._DRAGONMAX_HOME_XML, encoding='utf-8')
     ET.parse(native_menu); ET.parse(home)
+
     labels = [str(x.findtext('label') or '') for x in ET.parse(native_menu).getroot().findall('shortcut')]
     required = ['Dragon Portal','Continue Watching','Movies','TV Shows','Sports','Anime','Music','Podcasts','Settings']
     if labels != required: raise RuntimeError('DragonMax 4.9 native menu validation failed: '+repr(labels))
+
     home_text = home.read_text(encoding='utf-8')
-    for token in ('type="multiimage"','WindowOpen','effect="zoom"','target=sports','target=anime','target=music','target=podcasts','dragon_order_hero_01.jpg','dragon_order_portal.jpg'):
+    for token in ('type="multiimage"','WindowOpen','effect="zoom"','target=sports','target=anime','target=music','target=podcasts','wallpapers/dragon_order/dragon_order_01.jpg','dragon_order_portal.jpg'):
         if token not in home_text: raise RuntimeError('DragonMax 4.9 presentation missing '+token)
-    for forbidden in ('dragon_order_hero_01.png','dragon_order_portal.png'):
-        if forbidden in home_text: raise RuntimeError('Synthetic 4.9 presentation path survived: '+forbidden)
-    for target in ('portal','continue','movies','tv','sports','anime','music','podcasts','settings'):
-        if ('target='+target) not in home_text:
-            raise RuntimeError('DragonMax 4.9 Home route missing '+target)
+    for forbidden in ('hero_banners/','dragon_order_portal.png','RunPlugin(plugin://plugin.program.dragonmaxportal'):
+        if forbidden in home_text: raise RuntimeError('Invalid 4.9 presentation path/action survived: '+forbidden)
+    for target in ('continue','movies','tv','sports','anime','music','podcasts','settings'):
+        expected = 'ActivateWindow(Programs,"plugin://plugin.program.dragonmaxportal/?action=open&amp;target='+target+'",return)'
+        if expected not in home_text: raise RuntimeError('DragonMax 4.9 navigable Home route missing '+target)
+    if 'ActivateWindow(Programs,"plugin://plugin.program.dragonmaxportal/",return)' not in home_text:
+        raise RuntimeError('Dragon Portal root does not open a Kodi Programs window')
+    if 'ActivateWindow(Home)' not in voice_text:
+        raise RuntimeError('Dragon Voice fallback does not return to Home')
 
     portal = stage / 'addons' / 'plugin.program.dragonmaxportal' / 'default.py'
     portal_text = portal.read_text(encoding='utf-8')
     compile(portal_text, 'plugin.program.dragonmaxportal/default.py', 'exec')
-    for token in ("return open_target(spec[1], play_sound=False)", "'browse_movies'", "'browse_tv'", "'browse_sports'", "'browse_anime'", "'browse_music'", "'browse_podcasts'"):
-        if token not in portal_text: raise RuntimeError('Dragon Portal direct route gate missing '+token)
-    if 'ActivateWindow(Home)' not in voice_text:
-        raise RuntimeError('Dragon Voice fallback does not return to Home')
+    for token in ("'browse_movies'", "'browse_tv'", "'browse_sports'", "'browse_anime'", "'browse_music'", "'browse_podcasts'"):
+        if token not in portal_text: raise RuntimeError('Dragon Portal route gate missing '+token)
 
-    print('DragonMax 4.9 animated media hub staged deterministically')
+    print('DragonMax 4.9 media hub staged with navigable Kodi windows')
     print('DragonMax fresh-install and fallback skin activation staged')
 b.generate_userdata = generate_dragonmax_userdata
 
