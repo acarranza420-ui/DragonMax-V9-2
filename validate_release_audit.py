@@ -22,8 +22,8 @@ TRANSITIVE_OFFICIAL = {
 }
 DRAGONMAX_HOME = [
     'Dragon Portal', 'Continue Watching', 'Movies', 'TV Shows',
-    'Anime Universe', 'Martial Arts', 'Champion Guild',
-    'Office Consortium', 'Settings',
+    'Sports', 'Anime', 'Music', 'Podcasts', 'Martial Arts',
+    'Champion Guild', 'Office Consortium', 'Settings',
 ]
 
 
@@ -102,6 +102,8 @@ def audit_portal(z, members, addons, errors):
         portal = z.read(members[portal_default]).decode('utf-8', errors='ignore')
     for token in ('Switch Realm','dragon_order','arcane_dominion','crimson_court','temple_guardians','champion_guild','office_consortium','set_realm'):
         if token not in portal: errors.append('Dragon Portal realm control missing: '+token)
+    for token in ('MEDIA_SECTIONS','def build_section','Add-ons Source','video_addons','audio_addons'):
+        if token not in portal: errors.append('Dragon Portal media/add-on routing missing: '+token)
     service_rel = 'addons/service.dragonmax.voice/service.py'
     service = z.read(members[service_rel]).decode('utf-8', errors='ignore') if service_rel in members else ''
     if 'plugin.program.dragonmaxportal' not in service: errors.append('Dragon Voice is not wired to the native Dragon Portal')
@@ -119,10 +121,13 @@ def audit_dragonmax_home(z, members, errors):
             root = ET.fromstring(z.read(members[menu_rel]).decode('utf-8'))
             labels = [str(node.findtext('label') or '') for node in root.findall('shortcut')]
             if labels != DRAGONMAX_HOME:
-                errors.append('AuraMOD would not boot to the DragonMax home; menu labels='+repr(labels))
+                errors.append('AuraMOD would not boot to the DragonMax 4.9 home; menu labels='+repr(labels))
             text = z.read(members[menu_rel]).decode('utf-8', errors='ignore')
             if 'plugin://plugin.program.dragonmaxportal/' not in text:
                 errors.append('DragonMax home does not route to native Dragon Portal')
+            for target in ('movies','tv','sports','anime','music','podcasts'):
+                if 'target='+target not in text:
+                    errors.append('DragonMax native menu missing routed target='+target)
         except Exception as exc:
             errors.append('DragonMax AuraMOD main menu XML invalid: '+str(exc))
 
@@ -138,10 +143,15 @@ def audit_dragonmax_home(z, members, errors):
     required_home_tokens = (
         'DRAGONMAX', 'DragonMaxRealm', 'DragonMaxRealmName',
         'ENTER THE DRAGON REALMS', 'TRENDING MOVIES',
-        'plugin.program.dragonmaxportal',
-        'dragon_order_01.png', 'arcane_dominion_01.png',
-        'crimson_court_01.png', 'temple_guardians_01.png',
-        'champion_guild_01.png', 'office_consortium_01.png',
+        'plugin.program.dragonmaxportal', 'type="multiimage"',
+        'VisibleChange', 'WindowOpen', 'effect="zoom"',
+        'special://home/artwork/wallpapers/dragon_order/',
+        'special://home/artwork/wallpapers/arcane_dominion/',
+        'special://home/artwork/wallpapers/crimson_court/',
+        'special://home/artwork/wallpapers/temple_guardians/',
+        'special://home/artwork/wallpapers/champion_guild/',
+        'special://home/artwork/wallpapers/office_consortium/',
+        'target=sports', 'target=anime', 'target=music', 'target=podcasts',
     )
     for token in required_home_tokens:
         if token not in home_text: errors.append('DragonMax custom Home.xml missing: '+token)
@@ -181,8 +191,8 @@ def main():
         for item in sorted(set(errors)): print('ERROR:', item)
         return 1
     print('DragonMax comprehensive release audit passed.')
-    print('Verified dependency closure, custom DragonMax Home.xml, native realm switching,')
-    print('Dragon Portal wiring, metadata-driven activation, and protected Fire TV runtime paths.')
+    print('Verified dependency closure, DragonMax 4.9 animated Home.xml, native realm switching,')
+    print('per-section add-on routing, Dragon Portal wiring, metadata-driven activation, and protected Fire TV runtime paths.')
     return 0
 
 
