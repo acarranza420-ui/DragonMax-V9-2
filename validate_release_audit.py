@@ -22,8 +22,7 @@ TRANSITIVE_OFFICIAL = {
 }
 DRAGONMAX_HOME = [
     'Dragon Portal', 'Continue Watching', 'Movies', 'TV Shows',
-    'Sports', 'Anime', 'Music', 'Podcasts', 'Martial Arts',
-    'Champion Guild', 'Office Consortium', 'Settings',
+    'Sports', 'Anime', 'Music', 'Podcasts', 'Settings',
 ]
 
 
@@ -192,7 +191,7 @@ def main():
         return 1
     print('DragonMax comprehensive release audit passed.')
     print('Verified dependency closure, DragonMax 4.9 animated Home.xml, native realm switching,')
-    print('per-section add-on routing, Dragon Portal wiring, metadata-driven activation, and protected Fire TV runtime paths.')
+    print('per-section add-on routing, nine-item Fire TV navigation, Dragon Portal wiring, and protected runtime paths.')
     return 0
 
 
