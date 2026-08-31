@@ -44,6 +44,18 @@ def install_dragonmax_with_closure():
     base._closure.bundle_official_dependency_closure(
         b.STAGE, b.fetch, b.extract_addon_zip, b.fetch_text
     )
+    # Some upstream source archives contain .git/.github/test/docs trees.
+    # Strip them only after dependency closure has finished staging everything.
+    b.prune_development_debris()
+    for p in sorted(list((b.STAGE / 'addons').rglob('*')), key=lambda x: len(x.parts), reverse=True):
+        if any(part.lower() in b.DEV_DIR_NAMES for part in p.relative_to(b.STAGE).parts):
+            try:
+                if p.is_dir():
+                    b.shutil.rmtree(p, ignore_errors=True)
+                elif p.exists():
+                    p.unlink()
+            except OSError:
+                pass
 b.install_dragonmax_addons = install_dragonmax_with_closure
 
 _original_userdata = b.generate_userdata
