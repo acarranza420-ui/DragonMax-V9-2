@@ -3,7 +3,7 @@ import ast, hashlib, io, zipfile
 from pathlib import Path
 
 VERSION='4.5.0'
-HOST='https://dragonmax-v12-release.onrender.com/'
+HOST='https://dragonmax.onrender.com/'
 XML='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
 
 REPO=f'''{XML}\n<addon id="repository.dragonmax" name="DragonMax Repository" version="{VERSION}" provider-name="DragonMax RD"><extension point="xbmc.addon.repository" name="DragonMax Repository"><dir minversion="21.0.0"><info compressed="false">{HOST}addons.xml</info><checksum>{HOST}addons.xml.md5</checksum><datadir zip="true">{HOST}</datadir></dir></extension><extension point="xbmc.addon.metadata"><summary>DragonMax V12 Unified repository</summary><description>DragonMax V12 Unified repository for Kodi 21+.</description><platform>all</platform></extension></addon>'''
@@ -14,7 +14,7 @@ DEFAULT=r'''#!/usr/bin/env python3
 import hashlib,json,os,shutil,time,traceback,urllib.request,zipfile
 import xml.etree.ElementTree as ET
 import xbmc,xbmcaddon,xbmcgui,xbmcvfs
-HOST='https://dragonmax-v12-release.onrender.com/'; BUILD_JSON=HOST+'build.json'; ADDON_ID='plugin.program.dragonmaxwizard'; VERSION='4.5.0'; MIN_PROTOCOL=4
+HOST='https://dragonmax.onrender.com/'; BUILD_JSON=HOST+'build.json'; ADDON_ID='plugin.program.dragonmaxwizard'; VERSION='4.5.0'; MIN_PROTOCOL=4
 ALLOWED=('addons/','userdata/','artwork/','audio/','startup/','dragonmax/'); META={'dragonmax_manifest.json','dragonmax/install_manifest.json'}
 PROTECTED=('userdata/Database/','userdata/Thumbnails/','userdata/temp/','addons/packages/','temp/','cache/','dragonmax_backups/'); PROTECTED_FILES={'userdata/guisettings.xml'}
 OWNED=('addons/service.dragonmax.voice/','userdata/addon_data/service.dragonmax.voice/','dragonmax/','artwork/','audio/','startup/')
@@ -227,4 +227,4 @@ def publish(root:Path,out:Path):
   d=out/aid; d.mkdir(parents=True,exist_ok=True); (out/f'{aid}-{VERSION}.zip').write_bytes(data); (d/f'{aid}-{VERSION}.zip').write_bytes(data)
   with zipfile.ZipFile(out/f'{aid}-{VERSION}.zip') as q:
    if q.testzip(): raise RuntimeError('Corrupt generated installer ZIP')
- print('DragonMax Wizard 4.5.0 generated; protocol-4 Omega dependency-bootstrap gates passed.')
+ print('DragonMax Wizard '+VERSION+' generated; protocol-4 Omega dependency-bootstrap gates passed.')
