@@ -10,6 +10,8 @@ _base._r.REPO = _base._r.REPO.replace('4.8.0', _VERSION).replace('4.7.0', _VERSI
 _base._r.ADDON = _base._r.ADDON.replace('4.8.0', _VERSION).replace('4.7.0', _VERSION)
 _base._r.DEFAULT = _base._r.DEFAULT.replace('4.8.0', _VERSION).replace('4.7.0', _VERSION)
 
+# Nine top-level entries keeps Fire TV remote navigation predictable. Realm and
+# specialist destinations remain fully available through Dragon Portal.
 _base._DRAGONMAX_MAINMENU = '''<?xml version="1.0" encoding="UTF-8"?>
 <shortcuts>
  <shortcut><label>Dragon Portal</label><label2>DragonMax</label2><defaultID>dragonportal</defaultID><icon>special://home/artwork/realm_crests/dragon_order_crest.png</icon><thumb>special://home/artwork/portal_graphics/dragon_order_portal.png</thumb><action>RunPlugin(plugin://plugin.program.dragonmaxportal/?action=open&amp;target=portal)</action></shortcut>
@@ -20,9 +22,6 @@ _base._DRAGONMAX_MAINMENU = '''<?xml version="1.0" encoding="UTF-8"?>
  <shortcut><label>Anime</label><label2>DragonMax Media</label2><defaultID>anime</defaultID><action>RunPlugin(plugin://plugin.program.dragonmaxportal/?action=open&amp;target=anime)</action></shortcut>
  <shortcut><label>Music</label><label2>DragonMax Media</label2><defaultID>music</defaultID><action>RunPlugin(plugin://plugin.program.dragonmaxportal/?action=open&amp;target=music)</action></shortcut>
  <shortcut><label>Podcasts</label><label2>DragonMax Media</label2><defaultID>podcasts</defaultID><action>RunPlugin(plugin://plugin.program.dragonmaxportal/?action=open&amp;target=podcasts)</action></shortcut>
- <shortcut><label>Martial Arts</label><label2>DragonMax Realm</label2><defaultID>martialarts</defaultID><action>RunPlugin(plugin://plugin.program.dragonmaxportal/?action=set_realm&amp;realm=temple_guardians)</action></shortcut>
- <shortcut><label>Champion Guild</label><label2>DragonMax Realm</label2><defaultID>championguild</defaultID><action>RunPlugin(plugin://plugin.program.dragonmaxportal/?action=set_realm&amp;realm=champion_guild)</action></shortcut>
- <shortcut><label>Office Consortium</label><label2>DragonMax Realm</label2><defaultID>officeconsortium</defaultID><action>RunPlugin(plugin://plugin.program.dragonmaxportal/?action=set_realm&amp;realm=office_consortium)</action></shortcut>
  <shortcut><label>Settings</label><label2>DragonMax</label2><defaultID>settings</defaultID><action>RunPlugin(plugin://plugin.program.dragonmaxportal/?action=open&amp;target=settings)</action></shortcut>
 </shortcuts>'''
 
@@ -43,15 +42,6 @@ home = home.replace('  <control type="label"><left>70</left><top>735</top>', med
 home = home.replace('<control type="fixedlist" id="6100"><left>70</left><top>785</top><width>1780</width><height>245</height>', '<control type="fixedlist" id="6100"><left>70</left><top>835</top><width>1780</width><height>205</height>', 1)
 home = home.replace('<onup>5001</onup>', '<onup>5010</onup>', 1)
 _base._DRAGONMAX_HOME_XML = home
-
-# Enforce the expanded media hub in the build-time validation path.
-_old_generate = _base._patch_builder
-
-def _v49_patch_builder(frame, event, arg):
-    result = _old_generate(frame, event, arg)
-    return _v49_patch_builder if result is not None else None
-
-_base._patch_builder = _old_generate
 
 from repo_release_v48 import *
 DEFAULT = _base._r.DEFAULT
