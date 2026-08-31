@@ -66,6 +66,18 @@ def generate_dragonmax_userdata():
         encoding='utf-8'
     )
 
+    # Mandatory hand-off to the Dragon Voice startup service.  The previous
+    # release bundled the activation routine but never created this trigger,
+    # leaving fresh installs on Estuary after a successful payload copy.
+    pending = stage / 'userdata' / 'addon_data' / 'service.dragonmax.voice' / 'pending_skin_activation.json'
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    pending.write_text(json.dumps({
+        'skin': 'skin.auramod',
+        'requested_by': 'dragonmax-4.9-installer',
+        'show_startup_splash': True,
+        'target_window': 'home'
+    }, indent=2), encoding='utf-8')
+
     menu_path = stage / 'dragonmax' / 'config' / 'menus.json'
     try:
         menus = json.loads(menu_path.read_text(encoding='utf-8'))
@@ -96,6 +108,7 @@ def generate_dragonmax_userdata():
             raise RuntimeError('DragonMax 4.9 presentation missing ' + token)
 
     print('DragonMax 4.9 animated media hub staged deterministically')
+    print('DragonMax fresh-install skin activation trigger staged')
 
 b.generate_userdata = generate_dragonmax_userdata
 
