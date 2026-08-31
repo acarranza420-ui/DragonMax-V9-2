@@ -16,9 +16,6 @@ def portal_window(target):
     return 'ActivateWindow(Programs,"plugin://plugin.program.dragonmaxportal/?action=open&amp;target=' + target + '",return)'
 
 
-# Nine top-level entries keeps Fire TV remote navigation predictable. Every
-# destination is opened as a Kodi window, rather than RunPlugin(), because the
-# Portal is a directory-style plugin and Fire TV must actually display the result.
 _base._DRAGONMAX_MAINMENU = '''<?xml version="1.0" encoding="UTF-8"?>
 <shortcuts>
  <shortcut><label>Dragon Portal</label><label2>DragonMax</label2><defaultID>dragonportal</defaultID><icon>special://home/artwork/realm_crests/dragon_order_crest.png</icon><thumb>special://home/artwork/portal_graphics/dragon_order_portal.jpg</thumb><action>ActivateWindow(Programs,"plugin://plugin.program.dragonmaxportal/",return)</action></shortcut>
@@ -34,19 +31,15 @@ _base._DRAGONMAX_MAINMENU = '''<?xml version="1.0" encoding="UTF-8"?>
 
 home = _base._DRAGONMAX_HOME_XML
 
-# Convert every DragonMax Home plugin action into a real window-opening route.
-# This includes the inherited 5001-5009 navigation controls from the 4.8 shell.
 for target in ('portal','continue','movies','tv','sports','anime','music','podcasts','settings'):
     old = 'RunPlugin(plugin://plugin.program.dragonmaxportal/?action=open&amp;target=' + target + ')'
     new = portal_window(target) if target != 'portal' else 'ActivateWindow(Programs,"plugin://plugin.program.dragonmaxportal/",return)'
     home = home.replace(old, new)
 
-# Anime becomes a content destination rather than only a realm switch.
 home = home.replace(
     'RunPlugin(plugin://plugin.program.dragonmaxportal/?action=set_realm&amp;realm=arcane_dominion)',
     portal_window('anime'), 1)
 
-# Main nav moves down into a dedicated media row instead of jumping straight to posters.
 home = home.replace('<ondown>6100</ondown>', '<ondown>5010</ondown>')
 media_row = '''
   <control type="group"><left>70</left><top>710</top><animation effect="fade" start="0" end="100" time="420" delay="410">WindowOpen</animation><animation effect="slide" start="0,18" end="0,0" time="420" delay="410">WindowOpen</animation>
@@ -60,7 +53,10 @@ home = home.replace('  <control type="label"><left>70</left><top>735</top>', med
 home = home.replace('<control type="fixedlist" id="6100"><left>70</left><top>785</top><width>1780</width><height>245</height>', '<control type="fixedlist" id="6100"><left>70</left><top>835</top><width>1780</width><height>205</height>', 1)
 home = home.replace('<onup>5001</onup>', '<onup>5010</onup>', 1)
 
-# Real recovered Portal art is JPEG. Do not point the UI at the old generated PNG.
+# Bind the presentation layer directly to the recovered V12 art. No generated
+# hero or portal placeholder is a valid 4.9 primary asset.
+home = home.replace('special://home/artwork/hero_banners/dragon_order/dragon_order_hero_01.png', 'special://home/artwork/wallpapers/dragon_order/dragon_order_01.jpg')
+home = home.replace('special://home/artwork/hero_banners/dragon_order/dragon_order_hero_01.jpg', 'special://home/artwork/wallpapers/dragon_order/dragon_order_01.jpg')
 home = home.replace('special://home/artwork/portal_graphics/dragon_order_portal.png', 'special://home/artwork/portal_graphics/dragon_order_portal.jpg')
 _base._DRAGONMAX_HOME_XML = home
 
