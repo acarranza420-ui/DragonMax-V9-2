@@ -93,10 +93,16 @@ def jsonrpc(method, params=None):
 def set_skin(skin):
     jsonrpc('Addons.SetAddonEnabled', {'addonid': skin, 'enabled': True})
     result = jsonrpc('Settings.SetSettingValue', {'setting': 'lookandfeel.skin', 'value': skin})
-    if result.get('result') in (True, 'OK'):
+    xbmc.sleep(800)
+    current = jsonrpc('Settings.GetSettingValue', {'setting': 'lookandfeel.skin'}).get('result', {}).get('value', '')
+    if current == skin:
+        if skin == 'skin.auramod':
+            xbmc.executebuiltin('Skin.SetString(DragonMaxRealm,dragon_order)')
+            xbmc.executebuiltin('Skin.SetString(DragonMaxRealmName,Dragon Order)')
+            xbmc.executebuiltin('ActivateWindow(Home)')
         notify('Skin switched to ' + skin.replace('skin.', '').title())
     else:
-        notify('Skin switch could not be completed.')
+        notify('Skin switch queued. Restart Kodi if the interface does not change immediately.')
 
 
 def set_realm(slug):
@@ -114,11 +120,23 @@ def set_realm(slug):
     xbmc.executebuiltin('ActivateWindow(Home)')
 
 
+def activate_builtin(command, label):
+    try:
+        xbmc.executebuiltin(command)
+        return True
+    except Exception as exc:
+        xbmc.log('[DragonPortal] ' + label + ' failed: ' + repr(exc), xbmc.LOGERROR)
+        notify(label + ' could not be opened.')
+        return False
+
+
 def open_section(section):
-    if section not in MEDIA_SECTIONS:
+    """Home tabs go directly to their primary destination. No nested Programs-window hop."""
+    spec = MEDIA_SECTIONS.get(section)
+    if not spec:
         notify('Unknown DragonMax media section: ' + section)
         return
-    xbmc.executebuiltin('ActivateWindow(Programs,"' + url('section', section=section) + '",return)')
+    return open_target(spec[1], play_sound=False)
 
 
 def build_section(section):
@@ -134,9 +152,10 @@ def build_section(section):
     xbmcplugin.endOfDirectory(HANDLE)
 
 
-def open_target(target):
-    """Single tested command router for all Home.xml controls."""
-    click_sound()
+def open_target(target, play_sound=True):
+    """Single command router used by every DragonMax Home control."""
+    if play_sound:
+        click_sound()
 
     if target in MEDIA_SECTIONS:
         return open_section(target)
@@ -148,28 +167,27 @@ def open_target(target):
         xbmc.executebuiltin('Skin.SetString(DragonMaxRealm,arcane_dominion)')
         xbmc.executebuiltin('Skin.SetString(DragonMaxRealmName,Arcane Dominion)')
         xbmc.executebuiltin('PlayMedia(special://home/audio/realm_change_arcane_dominion.wav)')
-        xbmc.sleep(120)
 
     routes = {
-        'portal': 'ActivateWindow(Programs,"plugin://plugin.program.dragonmaxportal/",return)',
-        'continue': 'ActivateWindow(Videos,"videodb://inprogresstvshows/",return)',
-        'browse_movies': 'ActivateWindow(Videos,"plugin://plugin.video.themoviedb.helper/?info=dir_movie&widget=True",return)',
-        'browse_tv': 'ActivateWindow(Videos,"plugin://plugin.video.themoviedb.helper/?info=dir_tv&widget=True",return)',
-        'browse_sports': 'ActivateWindow(Videos,"addons://sources/video/",return)',
-        'browse_anime': 'ActivateWindow(Videos,"plugin://plugin.video.themoviedb.helper/?info=search&query=anime&widget=True",return)',
-        'browse_music': 'ActivateWindow(MusicFiles)',
-        'browse_podcasts': 'ActivateWindow(MusicFiles,"addons://sources/audio/",return)',
-        'video_addons': 'ActivateWindow(Videos,"addons://sources/video/",return)',
-        'audio_addons': 'ActivateWindow(MusicFiles,"addons://sources/audio/",return)',
-        'settings': 'ActivateWindow(Settings)',
-        'addons': 'ActivateWindow(AddonBrowser)',
-        'weather': 'ActivateWindow(Weather)',
+        'portal': ('ActivateWindow(Programs,"plugin://plugin.program.dragonmaxportal/",return)', 'Dragon Portal'),
+        'continue': ('ActivateWindow(Videos,"videodb://inprogresstvshows/",return)', 'Continue Watching'),
+        'browse_movies': ('ActivateWindow(Videos,"plugin://plugin.video.themoviedb.helper/?info=dir_movie",return)', 'Movies'),
+        'browse_tv': ('ActivateWindow(Videos,"plugin://plugin.video.themoviedb.helper/?info=dir_tv",return)', 'TV Shows'),
+        'browse_sports': ('ActivateWindow(Videos,"addons://sources/video/",return)', 'Sports'),
+        'browse_anime': ('ActivateWindow(Videos,"plugin://plugin.video.themoviedb.helper/?info=search&query=anime",return)', 'Anime'),
+        'browse_music': ('ActivateWindow(MusicFiles)', 'Music'),
+        'browse_podcasts': ('ActivateWindow(MusicFiles,"addons://sources/audio/",return)', 'Podcasts'),
+        'video_addons': ('ActivateWindow(Videos,"addons://sources/video/",return)', 'Video Add-ons'),
+        'audio_addons': ('ActivateWindow(MusicFiles,"addons://sources/audio/",return)', 'Audio Add-ons'),
+        'settings': ('ActivateWindow(Settings)', 'Settings'),
+        'addons': ('ActivateWindow(AddonBrowser)', 'Add-ons'),
+        'weather': ('ActivateWindow(Weather)', 'Weather'),
     }
-    command = routes.get(target)
-    if not command:
+    route = routes.get(target)
+    if not route:
         notify('Unknown DragonMax destination: ' + target)
         return
-    xbmc.executebuiltin(command)
+    return activate_builtin(route[0], route[1])
 
 
 def performance(mode):
@@ -224,7 +242,7 @@ def repair():
     for addon_id in ('service.dragonmax.voice', 'plugin.program.dragonmaxportal', 'skin.auramod'):
         jsonrpc('Addons.SetAddonEnabled', {'addonid': addon_id, 'enabled': True})
     xbmc.executebuiltin('UpdateAddonRepos')
-    write_json(PENDING_SKIN_FILE, {'skin': 'skin.auramod', 'source': 'dragon_portal_repair'})
+    write_json(PENDING_SKIN_FILE, {'skin': 'skin.auramod', 'source': 'dragon_portal_repair', 'target_window': 'home'})
     notify('Repair queued. Fully exit Kodi and reopen it.')
 
 
@@ -239,6 +257,7 @@ def build_root():
     item('Performance', 'performance_menu', folder=True); item('Weather', 'open', target='weather')
     item('Wallpapers', 'wallpapers'); item('All Add-ons', 'open', target='addons'); item('Maintenance', 'maintenance')
     item('Advanced Settings', 'advanced'); item('System Info', 'system_info'); item('Repair DragonMax', 'repair')
+    xbmcplugin.setPluginCategory(HANDLE, 'Dragon Portal')
     xbmcplugin.endOfDirectory(HANDLE)
 
 
