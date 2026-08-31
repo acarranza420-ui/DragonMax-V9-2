@@ -44,10 +44,11 @@ def finalize_dragonmax(home,root,p):
  pu(p,98,'Activating DragonMax interface')
  pending=os.path.join(home,'userdata','addon_data','service.dragonmax.voice','pending_skin_activation.json')
  os.makedirs(os.path.dirname(pending),exist_ok=True)
- with open(pending,'w',encoding='utf-8') as f: json.dump({'skin':'skin.auramod','requested_by':'dragonmax-4.9-installer','show_startup_splash':True},f)
+ with open(pending,'w',encoding='utf-8') as f: json.dump({'skin':'skin.auramod','requested_by':'dragonmax-4.9-installer','show_startup_splash':True,'target_window':'home'},f)
  xbmc.executebuiltin('UpdateLocalAddons'); xbmc.sleep(1800)
  for dep in required_skin_dependencies(root): enable_runtime_addon(dep)
  enable_runtime_addon('service.dragonmax.voice')
+ enable_runtime_addon('plugin.program.dragonmaxportal')
  if not enable_runtime_addon('skin.auramod'): raise RuntimeError('AuraMOD could not be enabled after installation')
  result=rpc('Settings.SetSettingValue',{'setting':'lookandfeel.skin','value':'skin.auramod'})
  xbmc.sleep(2200)
@@ -56,18 +57,23 @@ def finalize_dragonmax(home,root,p):
  if value!='skin.auramod':
   xbmc.log('[DragonMaxWizard] AuraMOD switch deferred to startup service: '+repr(result),xbmc.LOGWARNING)
  else:
-  try: os.remove(pending)
-  except OSError: pass
+  xbmc.executebuiltin('Skin.SetString(DragonMaxRealm,dragon_order)')
+  xbmc.executebuiltin('Skin.SetString(DragonMaxRealmName,Dragon Order)')
   xbmc.executebuiltin('ActivateWindow(Home)')
 '''
     if marker not in default:
         raise RuntimeError('Wizard dependency helper injection point not found')
     if 'def finalize_dragonmax(' not in default:
         default = default.replace(marker, helper + marker, 1)
-    old = 'apply(home,fs,p)'
+    old = "apply(home,fs,p); finalize_addons(); pu(p,100,'Installation complete')"
+    new = "apply(home,fs,p); finalize_addons(); finalize_dragonmax(home,root,p); pu(p,100,'Installation complete')"
     if old not in default:
-        raise RuntimeError('Wizard apply injection point not found')
-    default = default.replace(old, old+'; finalize_dragonmax(home,root,p)', 1)
+        raise RuntimeError('Wizard activation sequence injection point not found')
+    default = default.replace(old, new, 1)
+    compile(default, 'dragonmaxwizard-default.py', 'exec')
+    for token in ('def finalize_dragonmax(', "enable_runtime_addon('plugin.program.dragonmaxportal')", "Settings.SetSettingValue", "ActivateWindow(Home)"):
+        if token not in default:
+            raise RuntimeError('Wizard activation gate missing '+token)
     return default
 
 base._r.DEFAULT = patch_wizard(base._r.DEFAULT)
@@ -111,12 +117,22 @@ b.install_dragonmax_addons = install_dragonmax_with_closure
 _original_media = b.generate_media
 def generate_dragonmax_media():
     _original_media()
-    source = b.STAGE / 'startup' / 'dragonmax_static_splash.png'
+    source_png = b.STAGE / 'startup' / 'dragonmax_static_splash.png'
+    source_jpg = b.STAGE / 'startup' / 'dragonmax_static_splash.jpg'
+    source = source_jpg if source_jpg.is_file() else source_png
+    if not source.is_file():
+        raise RuntimeError('DragonMax startup splash source missing')
     media = b.STAGE / 'media'
     media.mkdir(parents=True, exist_ok=True)
     data = source.read_bytes()
-    (media / 'splash.jpg').write_bytes(data)
-    (media / 'splash.png').write_bytes(data)
+    suffix = source.suffix.lower()
+    (media / ('splash.jpg' if suffix == '.jpg' else 'splash.png')).write_bytes(data)
+    # Keep both conventional Kodi splash names available. Kodi image loading is
+    # content-aware on Android, but the matching extension remains the primary path.
+    if suffix == '.jpg':
+        (media / 'splash.png').write_bytes(data)
+    else:
+        (media / 'splash.jpg').write_bytes(data)
     print('DragonMax Kodi startup splash staged in media/')
 b.generate_media = generate_dragonmax_media
 
@@ -148,6 +164,9 @@ def generate_dragonmax_userdata():
     home_text = home.read_text(encoding='utf-8')
     for token in ('type="multiimage"','WindowOpen','effect="zoom"','target=sports','target=anime','target=music','target=podcasts'):
         if token not in home_text: raise RuntimeError('DragonMax 4.9 presentation missing '+token)
+    for target in ('portal','continue','movies','tv','sports','anime','music','podcasts','settings'):
+        if ('target='+target) not in home_text:
+            raise RuntimeError('DragonMax 4.9 Home route missing '+target)
     print('DragonMax 4.9 animated media hub staged deterministically')
     print('DragonMax fresh-install skin activation trigger staged')
 b.generate_userdata = generate_dragonmax_userdata
