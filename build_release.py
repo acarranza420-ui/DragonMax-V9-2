@@ -19,8 +19,6 @@ b.BOOTSTRAP_PACKAGES.update(base._FLIGHT_PACK)
 if 'media' not in b.RUNTIME_ROOTS:
     b.RUNTIME_ROOTS = tuple(b.RUNTIME_ROOTS) + ('media',)
 
-# Teach the generated wizard to copy Kodi-level media and to finish activation
-# instead of merely copying files and leaving Estuary active.
 def patch_wizard(default):
     default = default.replace(
         "ALLOWED=('addons/','userdata/','artwork/','audio/','startup/','dragonmax/');",
@@ -62,13 +60,15 @@ def finalize_dragonmax(home,root,p):
   except OSError: pass
   xbmc.executebuiltin('ActivateWindow(Home)')
 '''
-    if helper not in default:
-        default = default.replace(marker, helper + marker)
-    old = "apply(home,fs,p); pu(p,100,'Installation complete')"
-    new = "apply(home,fs,p); finalize_dragonmax(home,root,p); pu(p,100,'Installation complete')"
+    if marker not in default:
+        raise RuntimeError('Wizard dependency helper injection point not found')
+    if 'def finalize_dragonmax(' not in default:
+        default = default.replace(marker, helper + marker, 1)
+    old = 'apply(home,fs,p)'
     if old not in default:
-        raise RuntimeError('Wizard activation injection point not found')
-    return default.replace(old,new,1)
+        raise RuntimeError('Wizard apply injection point not found')
+    default = default.replace(old, old+'; finalize_dragonmax(home,root,p)', 1)
+    return default
 
 base._r.DEFAULT = patch_wizard(base._r.DEFAULT)
 release.DEFAULT = base._r.DEFAULT
@@ -111,9 +111,6 @@ b.install_dragonmax_addons = install_dragonmax_with_closure
 _original_media = b.generate_media
 def generate_dragonmax_media():
     _original_media()
-    # Kodi v21 checks special://home/media/splash.jpg before the built-in Omega
-    # splash. The bytes are a valid PNG image; Kodi's image loader sniffs the
-    # format rather than relying on the extension.
     source = b.STAGE / 'startup' / 'dragonmax_static_splash.png'
     media = b.STAGE / 'media'
     media.mkdir(parents=True, exist_ok=True)
@@ -130,25 +127,21 @@ def generate_dragonmax_userdata():
     keymap = stage / 'userdata' / 'keymaps' / 'dragonmax.xml'
     keymap.parent.mkdir(parents=True, exist_ok=True)
     keymap.write_text('<keymap><global><keyboard><menu>ActivateWindow(Programs,plugin://plugin.program.dragonmaxportal/,return)</menu></keyboard></global></keymap>',encoding='utf-8')
-
     pending = stage / 'userdata' / 'addon_data' / 'service.dragonmax.voice' / 'pending_skin_activation.json'
     pending.parent.mkdir(parents=True, exist_ok=True)
     pending.write_text(json.dumps({'skin':'skin.auramod','requested_by':'dragonmax-4.9-installer','show_startup_splash':True,'target_window':'home'},indent=2),encoding='utf-8')
-
     menu_path = stage / 'dragonmax' / 'config' / 'menus.json'
     try: menus = json.loads(menu_path.read_text(encoding='utf-8'))
     except Exception: menus = {}
     menus['home'] = ['Dragon Portal','Continue Watching','Movies','TV Shows','Sports','Anime','Music','Podcasts','Settings']
     menus['portal'] = ['Movies','TV Shows','Sports','Anime','Music','Podcasts','Switch Realm','Switch Skin','Performance','Weather','Wallpapers','All Add-ons','Martial Arts','Champion Guild','Office Consortium','Maintenance','Advanced Settings','System Info','Repair DragonMax']
     menu_path.write_text(json.dumps(menus, indent=2), encoding='utf-8')
-
     native_menu = stage / 'addons' / 'skin.auramod' / 'shortcuts' / 'mainmenu.DATA.xml'
     native_menu.parent.mkdir(parents=True, exist_ok=True)
     native_menu.write_text(base._DRAGONMAX_MAINMENU, encoding='utf-8')
     home = stage / 'addons' / 'skin.auramod' / '1080i' / 'Home.xml'
     home.write_text(base._DRAGONMAX_HOME_XML, encoding='utf-8')
     ET.parse(native_menu); ET.parse(home)
-
     labels = [str(x.findtext('label') or '') for x in ET.parse(native_menu).getroot().findall('shortcut')]
     required = ['Dragon Portal','Continue Watching','Movies','TV Shows','Sports','Anime','Music','Podcasts','Settings']
     if labels != required: raise RuntimeError('DragonMax 4.9 native menu validation failed: '+repr(labels))
