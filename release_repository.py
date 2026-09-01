@@ -2,7 +2,7 @@
 import ast, hashlib, io, zipfile
 from pathlib import Path
 
-VERSION='4.5.0'
+VERSION='4.9.0'
 HOST='https://dragonmax.onrender.com/'
 XML='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
 
@@ -14,7 +14,7 @@ DEFAULT=r'''#!/usr/bin/env python3
 import hashlib,json,os,shutil,time,traceback,urllib.request,zipfile
 import xml.etree.ElementTree as ET
 import xbmc,xbmcaddon,xbmcgui,xbmcvfs
-HOST='https://dragonmax.onrender.com/'; BUILD_JSON=HOST+'build.json'; ADDON_ID='plugin.program.dragonmaxwizard'; VERSION='4.5.0'; MIN_PROTOCOL=4
+HOST='https://dragonmax.onrender.com/'; BUILD_JSON=HOST+'build.json'; ADDON_ID='plugin.program.dragonmaxwizard'; VERSION='4.9.0'; MIN_PROTOCOL=4
 ALLOWED=('addons/','userdata/','artwork/','audio/','startup/','dragonmax/'); META={'dragonmax_manifest.json','dragonmax/install_manifest.json'}
 PROTECTED=('userdata/Database/','userdata/Thumbnails/','userdata/temp/','addons/packages/','temp/','cache/','dragonmax_backups/'); PROTECTED_FILES={'userdata/guisettings.xml'}
 OWNED=('addons/service.dragonmax.voice/','userdata/addon_data/service.dragonmax.voice/','dragonmax/','artwork/','audio/','startup/')
@@ -221,10 +221,15 @@ def gates(s):
 def publish(root:Path,out:Path):
  addons=XML+'\n<addons>\n'+frag(REPO)+'\n'+frag(ADDON)+'\n</addons>\n'; compile(DEFAULT,'default.py','exec'); gates(DEFAULT)
  ET.fromstring(addons)
- (out/'addons.xml').write_text(addons,encoding='utf-8'); (out/'addons.xml.md5').write_text(hashlib.md5(addons.encode()).hexdigest())
+ addons_bytes=addons.encode('utf-8')
+ (out/'addons.xml').write_bytes(addons_bytes); (out/'addons.xml.md5').write_text(hashlib.md5(addons_bytes).hexdigest(),encoding='ascii')
  rz=z('repository.dragonmax',{'addon.xml':REPO}); wz=z('plugin.program.dragonmaxwizard',{'addon.xml':ADDON,'default.py':DEFAULT})
  for aid,data in [('repository.dragonmax',rz),('plugin.program.dragonmaxwizard',wz)]:
   d=out/aid; d.mkdir(parents=True,exist_ok=True); (out/f'{aid}-{VERSION}.zip').write_bytes(data); (d/f'{aid}-{VERSION}.zip').write_bytes(data)
-  with zipfile.ZipFile(out/f'{aid}-{VERSION}.zip') as q:
+ with zipfile.ZipFile(out/f'{aid}-{VERSION}.zip') as q:
    if q.testzip(): raise RuntimeError('Corrupt generated installer ZIP')
+   names=[n.replace('\\','/').strip('/') for n in q.namelist() if n and not n.endswith('/')]
+   if {n.split('/',1)[0] for n in names}!={aid}: raise RuntimeError('Malformed installer root for '+aid)
+   if aid+'/addon.xml' not in names: raise RuntimeError('Installer missing root addon.xml for '+aid)
+   if len(names)!=len(set(names)): raise RuntimeError('Duplicate installer path for '+aid)
  print('DragonMax Wizard '+VERSION+' generated; protocol-4 Omega dependency-bootstrap gates passed.')

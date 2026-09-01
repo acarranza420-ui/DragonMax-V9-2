@@ -167,6 +167,9 @@ def activate_pending_skin():
         return False
     try:
         payload = json.loads(read_text(PENDING_SKIN_FILE, '{}') or '{}')
+        if payload.get('requires_restart') and int(payload.get('installer_pid', -1)) == os.getpid():
+            xbmc.log('[DragonVoice] waiting for Kodi restart before skin activation', xbmc.LOGINFO)
+            return False
         skin = payload.get('skin', 'skin.auramod')
         if not enable_skin_stack(skin):
             return False
@@ -174,6 +177,10 @@ def activate_pending_skin():
         if result.get('result') in (True, 'OK'):
             xbmc.sleep(1500)
             if active_skin_is(skin):
+                xbmc.executebuiltin('Skin.SetString(DragonMaxRealm,dragon_order)')
+                xbmc.executebuiltin('Skin.SetString(DragonMaxRealmName,Dragon Order)')
+                xbmc.executebuiltin('ActivateWindow(Home)')
+                xbmc.sleep(300)
                 try:
                     xbmcvfs.delete(PENDING_SKIN_FILE)
                 except Exception:

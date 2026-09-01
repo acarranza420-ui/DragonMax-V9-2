@@ -17,7 +17,15 @@ jobs:
           python-version: '3.12'
 
       - name: Build the exact release payload and installer
-        run: python3 build_release.py
+        run: python3 build_v12.py
+
+      - name: Reject stale release sources and Render-only hooks
+        run: |
+          if grep -R -n -E '4\.5\.0|4\.7\.0|4\.8\.0|repo_release_v45|repo_release_v48|repo_release_v49|sitecustomize' \
+            --exclude-dir=.git --exclude-dir=public --exclude-dir=.v12_stage --exclude-dir=__pycache__ --exclude='*.zip' --exclude='validate-dragonmax.yml' .; then
+            echo 'Stale release source or Render-only hook found.' >&2
+            exit 1
+          fi
 
       - name: Validate generated public distribution
         run: |
@@ -66,7 +74,10 @@ jobs:
           if int(build.get('install_protocol',0)) < 4: errors.append('generated build does not use install protocol 4+')
 
           for doc in ('updates.json','themes.json','realms.json'):
-              try: json.loads((root/doc).read_text())
+              try:
+                  metadata=json.loads((root/doc).read_text())
+                  if str(metadata.get('version', metadata.get('latest_build', ''))) != version:
+                      errors.append(f'{doc} release version mismatch')
               except Exception as exc: errors.append(f'{doc} invalid: {exc}')
 
           payload=root/build.get('zip','')
@@ -130,7 +141,16 @@ jobs:
                       with zipfile.ZipFile(zpath) as z:
                           bad=z.testzip()
                           if bad: errors.append(f'{zpath.name} corrupt member: {bad}')
+                          normalized=[n.replace('\\','/').strip('/') for n in z.namelist() if n and not n.endswith('/')]
+                          roots={n.split('/',1)[0] for n in normalized}
+                          if roots != {addon_id}: errors.append(f'{zpath.name} malformed root layout: {sorted(roots)}')
+                          if f'{addon_id}/addon.xml' not in normalized: errors.append(f'{zpath.name} missing root addon.xml')
+                          if len(normalized) != len(set(normalized)): errors.append(f'{zpath.name} has duplicate normalized paths')
                   except Exception as exc: errors.append(f'{zpath.name} invalid: {exc}')
+
+          versioned_root_zips=sorted(p.name for p in root.glob('*.zip'))
+          expected_root_zips=sorted([f'repository.dragonmax-{version}.zip',f'plugin.program.dragonmaxwizard-{version}.zip'])
+          if versioned_root_zips != expected_root_zips: errors.append(f'unexpected root installer artifacts: {versioned_root_zips}')
 
           if build.get('ready'): errors.append('CI must not publish ready=true before a real Fire TV validation pass')
           if errors:

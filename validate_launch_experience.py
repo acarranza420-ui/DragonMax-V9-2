@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Independent DragonMax release experience gate.
 
-Runs after build_v12.py and validates the generated distribution as a product,
+Runs after build_release.py and validates the generated distribution as a product,
 not just as a ZIP. It intentionally does not import the builder so it can catch
 builder assumptions and stale generated output independently.
 """
@@ -120,13 +120,13 @@ def main():
             fail(errors, f'realm contract mismatch: expected {sorted(EXPECTED_REALMS)}, got {sorted(x for x in ids if x)}')
         for realm in EXPECTED_REALMS:
             wallpapers = [n for n in members if n.startswith(f'artwork/wallpapers/{realm}/') and n.endswith('.png')]
-            heroes = [n for n in members if n.startswith(f'artwork/hero_banners/{realm}/') and n.endswith('.png')]
-            crest = f'artwork/realm_crests/{realm}_crest.png'
-            badges = [n for n in members if n.startswith(f'artwork/achievement_badges/{realm}/') and n.endswith('.png')]
-            if len(wallpapers) < 8: fail(errors, f'{realm} has only {len(wallpapers)} wallpapers; needs 8+')
-            if len(heroes) < 3: fail(errors, f'{realm} has only {len(heroes)} hero banners; needs 3+')
-            if crest not in members: fail(errors, f'{realm} crest missing')
-            if len(badges) < 5: fail(errors, f'{realm} has only {len(badges)} achievement badges; needs 5+')
+            if len(wallpapers) != 1: fail(errors, f'{realm} must have exactly one curated realm wallpaper, found {len(wallpapers)}')
+            elif members[wallpapers[0]].file_size < 500_000: fail(errors, f'{realm} realm wallpaper is undersized')
+        reference = 'artwork/reference/dragonmax_v92_home_preview.png'
+        if reference not in members or members[reference].file_size < 1_000_000:
+            fail(errors, 'recovered DragonMax V9.2 reference artwork missing or undersized')
+        for fake_root in ('artwork/hero_banners/', 'artwork/realm_crests/', 'artwork/achievement_badges/', 'artwork/loading_screens/', 'artwork/portal_graphics/', 'artwork/wizard_graphics/'):
+            if any(n.startswith(fake_root) for n in members): fail(errors, 'procedural/dead artwork survived: '+fake_root)
 
         profiles = perf.get('profiles', {}) if isinstance(perf, dict) else {}
         expected_profiles = {'maximum_speed', 'balanced', 'visual_quality'}
@@ -151,7 +151,7 @@ def main():
         if voice.get('self_repair_policy') != 'allowlisted_reversible_only':
             fail(errors, 'Dragon self-repair policy must remain allowlisted_reversible_only')
 
-        if 'startup/dragonmax_static_splash.png' not in members:
+        if 'startup/dragonmax_static_splash.jpg' not in members:
             fail(errors, 'DragonMax startup splash missing')
         audio_names = {pathlib.PurePosixPath(n).name for n in members if n.startswith('audio/')}
         missing_audio = sorted(REQUIRED_AUDIO - audio_names)
@@ -194,6 +194,10 @@ def main():
                     bad = installer_zip.testzip()
                     if bad:
                         fail(errors, f'{artifact.name} corrupt member: {bad}')
+                    roots = {n.replace('\\','/').split('/',1)[0] for n in installer_zip.namelist() if n and not n.endswith('/')}
+                    if roots != {installer_id}: fail(errors, f'{artifact.name} malformed root layout: {sorted(roots)}')
+                    if f'{installer_id}/addon.xml' not in {n.replace('\\','/') for n in installer_zip.namelist()}:
+                        fail(errors, f'{artifact.name} missing root addon.xml')
             except Exception as exc:
                 fail(errors, f'{artifact.name} is not a valid installer ZIP: {exc}')
 

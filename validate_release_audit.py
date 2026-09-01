@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Comprehensive independent DragonMax release audit."""
 import json
+import hashlib
 import pathlib
 import sys
 import xml.etree.ElementTree as ET
@@ -78,10 +79,9 @@ def audit_dependencies(addons,errors):
 def audit_real_art(z,members,errors):
     expected=[]
     for realm in REALMS:
-        expected.append((f'artwork/wallpapers/{realm}/{realm}_01.jpg',2500,b'\xff\xd8\xff'))
-        expected.append((f'artwork/realm_crests/{realm}_crest.png',500,b'\x89PNG\r\n\x1a\n'))
+        expected.append((f'artwork/wallpapers/{realm}/{realm}_01.png',500_000,b'\x89PNG\r\n\x1a\n'))
     expected += [
-        ('artwork/portal_graphics/dragon_order_portal.jpg',2500,b'\xff\xd8\xff'),
+        ('artwork/reference/dragonmax_v92_home_preview.png',1_000_000,b'\x89PNG\r\n\x1a\n'),
         ('startup/dragonmax_static_splash.jpg',5000,b'\xff\xd8\xff'),
         ('media/splash.jpg',5000,b'\xff\xd8\xff'),
     ]
@@ -91,9 +91,14 @@ def audit_real_art(z,members,errors):
         data=z.read(info)
         if len(data)<minimum: errors.append(f'real DragonMax asset undersized: {rel} ({len(data)})')
         if not data.startswith(magic): errors.append('real DragonMax asset signature invalid: '+rel)
+    try:
+        manifest=json.loads(z.read(members['dragonmax/artwork_manifest.json']).decode('utf-8'))
+        for rel,digest in manifest.get('sha256',{}).items():
+            if rel not in members: errors.append('artwork manifest references missing file: '+rel)
+            elif hashlib.sha256(z.read(members[rel])).hexdigest()!=digest: errors.append('artwork manifest hash mismatch: '+rel)
+    except Exception as exc: errors.append('artwork manifest invalid: '+str(exc))
     for rel in members:
-        if rel.startswith('artwork/wallpapers/') and rel.endswith('.png'): errors.append('synthetic PNG wallpaper survived: '+rel)
-        if rel.startswith('artwork/hero_banners/'): errors.append('synthetic hero banner directory survived: '+rel)
+        if rel.startswith(('artwork/hero_banners/','artwork/realm_crests/','artwork/achievement_badges/','artwork/loading_screens/','artwork/portal_graphics/','artwork/wizard_graphics/')): errors.append('procedural/dead artwork survived: '+rel)
     if 'media/splash.png' in members: errors.append('fake-extension splash.png survived alongside JPG splash')
 
 
@@ -121,7 +126,7 @@ def audit_home(z,members,errors):
         labels=[str(node.findtext('label') or '') for node in root.findall('shortcut')]
         if labels != DRAGONMAX_HOME: errors.append('AuraMOD would not boot to DragonMax 4.9 home; menu labels='+repr(labels))
     except Exception as exc: errors.append('DragonMax main menu XML invalid: '+str(exc)); return
-    if 'RunPlugin(plugin://plugin.program.dragonmaxportal' in menu_text: errors.append('native menu still contains dead RunPlugin Portal route')
+    if 'RunPlugin(plugin://plugin.program.dragonmaxportal/?action=open' in menu_text: errors.append('native menu still contains dead RunPlugin Portal directory route')
     if 'ActivateWindow(Programs,"plugin://plugin.program.dragonmaxportal/",return)' not in menu_text: errors.append('native Dragon Portal root does not open Programs window')
     for target in ('continue','movies','tv','sports','anime','music','podcasts','settings'):
         expected='ActivateWindow(Programs,"plugin://plugin.program.dragonmaxportal/?action=open&amp;target='+target+'",return)'
@@ -129,15 +134,23 @@ def audit_home(z,members,errors):
 
     if home_rel not in members: errors.append('DragonMax custom AuraMOD Home.xml is missing'); return
     try:
-        home_text=z.read(members[home_rel]).decode('utf-8'); ET.fromstring(home_text)
+        home_text=z.read(members[home_rel]).decode('utf-8'); home_root=ET.fromstring(home_text)
     except Exception as exc: errors.append('DragonMax custom Home.xml invalid: '+str(exc)); return
-    for token in ('DRAGONMAX','DragonMaxRealm','DragonMaxRealmName','ENTER THE DRAGON REALMS','TRENDING MOVIES','type="multiimage"','WindowOpen','effect="zoom"','wallpapers/dragon_order/dragon_order_01.jpg','dragon_order_portal.jpg'):
+    for token in ('DRAGONMAX','DragonMaxRealm','DragonMaxRealmName','ENTER THE DRAGON REALMS','TRENDING MOVIES','type="multiimage"','WindowOpen','effect="zoom"','wallpapers/dragon_order/','dragonmax_v92_home_preview.png'):
         if token not in home_text: errors.append('DragonMax custom Home.xml missing: '+token)
-    for forbidden in ('script.skinshortcuts-template-global-fanart','hero_banners/','dragon_order_portal.png','RunPlugin(plugin://plugin.program.dragonmaxportal'):
+    for forbidden in ('script.skinshortcuts-template-global-fanart','hero_banners/','realm_crests/','portal_graphics/','RunPlugin(plugin://plugin.program.dragonmaxportal/?action=open'):
         if forbidden in home_text: errors.append('invalid/stock/synthetic Home.xml token survived: '+forbidden)
     for target in ('continue','movies','tv','sports','anime','music','podcasts','settings'):
         expected='ActivateWindow(Programs,"plugin://plugin.program.dragonmaxportal/?action=open&amp;target='+target+'",return)'
         if expected not in home_text: errors.append('Home.xml missing navigable route='+target)
+    controls={node.attrib.get('id') for node in home_root.findall('.//control') if node.attrib.get('id')}
+    if str(home_root.findtext('defaultcontrol') or '') not in controls: errors.append('Home.xml default control does not exist')
+    for node in home_root.findall('.//control[@id]'):
+        source=node.attrib.get('id')
+        for direction in ('onleft','onright','onup','ondown'):
+            target=str(node.findtext(direction) or '')
+            if target and target.isdigit() and target not in controls: errors.append(f'Home.xml {source} {direction} targets missing control {target}')
+            if target and target==source: errors.append(f'Home.xml {source} has self-loop on {direction}')
 
 
 def audit_policy(members,errors):

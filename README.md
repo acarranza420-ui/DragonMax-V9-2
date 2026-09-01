@@ -4,22 +4,24 @@ DragonMax is a private-use Kodi/AuraMOD build project focused on a Netflix-style
 
 ## Current stabilization line
 
-This branch is the **V12 Unified 4.5.0 stabilization channel**. The build is generated from source by `build_v12.py`, validated in GitHub Actions, and then deployed to Render. Root-level historical release artifacts are not the production source of truth.
+This branch is the **V12 Unified 4.9.0 stabilization channel** for Kodi 21 Omega and Fire TV Stick 4K Max. `build_v12.py` is the Render-compatible wrapper around the canonical `build_release.py` entrypoint, so local, CI, and Render builds execute the same path.
 
-Production release host: `https://dragonmax-v12-release.onrender.com/`
+Production release host: `https://dragonmax.onrender.com/`
 
 ## Release architecture
 
 The generated `public/` directory is the only deployable release output. A successful build creates:
 
 - `public/addons.xml` and `public/addons.xml.md5`
-- `public/repository.dragonmax-4.5.0.zip`
-- `public/plugin.program.dragonmaxwizard-4.5.0.zip`
+- `public/repository.dragonmax-4.9.0.zip`
+- `public/plugin.program.dragonmaxwizard-4.9.0.zip`
 - `public/build.json`
 - `public/updates.json`, `public/themes.json`, and `public/realms.json`
-- `public/builds/DragonMax_V12_Unified_Build_Content-4.5.0.zip`
+- `public/builds/DragonMax_V12_Unified_Build_Content-4.9.0.zip`
 
-The full payload is applied by DragonMax Wizard. It is not installed directly as a Kodi add-on ZIP.
+The full payload is applied by DragonMax Wizard. It is not installed directly as a Kodi add-on ZIP. The wizard deliberately defers the AuraMOD skin switch until Kodi restarts, preventing an in-process skin reload during installation.
+
+`v12_assets/artwork/reference/dragonmax_v92_home_preview.png` is recovered byte-for-byte from the legacy payload and embedded in the release. The six realm wallpapers are curated bitmap assets; procedural placeholder artwork is forbidden by the release audit.
 
 ## Dependency policy
 

@@ -9,8 +9,8 @@ Kodi-bundled system modules are accepted from the Kodi 21 runtime itself.
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-KODI_OMEGA_INDEX = 'https://mirrors.kodi.tv/addons/omega/addons.xml'
-KODI_OMEGA_BASE = 'https://mirrors.kodi.tv/addons/omega'
+KODI_OMEGA_INDEX = 'https://download.kodi.tv/addons/omega/addons.xml'
+KODI_OMEGA_BASE = 'https://download.kodi.tv/addons/omega'
 CORE_PREFIXES = ('xbmc.', 'kodi.')
 KODI_SYSTEM_ADDONS = {
     'script.module.pil',

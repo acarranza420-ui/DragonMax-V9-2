@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
-"""DragonMax 4.8 presentation upgrade: animated Home + routed controls."""
-import repo_release as _base
+"""DragonMax 4.9 animated Home and routed controls."""
+import release_presentation as _base
 
-_VERSION = '4.8.0'
+_VERSION = '4.9.0'
 _base._RELEASE_VERSION = _VERSION
 _base._r.VERSION = _VERSION
-_base._r.REPO = _base._r.REPO.replace('4.7.0', _VERSION)
-_base._r.ADDON = _base._r.ADDON.replace('4.7.0', _VERSION)
-_base._r.DEFAULT = _base._r.DEFAULT.replace('4.7.0', _VERSION)
 
 _base._DRAGONMAX_MAINMENU = '''<?xml version="1.0" encoding="UTF-8"?>
 <shortcuts>
@@ -76,6 +73,6 @@ _base._DRAGONMAX_HOME_XML = '''<?xml version="1.0" encoding="UTF-8"?>
  </controls>
 </window>'''
 
-# The base tracer reads these globals dynamically when build_v12 defines its functions.
-from repo_release import *
+# Export the canonical repository/wizard hooks used by the builder.
+from release_presentation import *
 DEFAULT = _base._r.DEFAULT

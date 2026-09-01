@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Independent resilience gate for DragonMax launch candidates.
 
-This test does not import build_v12.py. It validates the generated payload as if
+This test does not import the builder. It validates the generated payload as if
 it were an external release artifact and models the failure cases that most often
 hurt Fire TV upgrades: corrupt manifests, duplicate paths, incomplete critical
 add-on dependencies, protected-data overwrite, broken activation persistence,
@@ -192,6 +192,12 @@ def verify_installer_artifact(path, expected_id, expected_version, errors):
                 errors.append(f'{path.name} corrupt member: {bad}')
                 return
             addon_xmls = [n for n in z.namelist() if n.replace('\\', '/').endswith('/addon.xml')]
+            normalized = [n.replace('\\','/').strip('/') for n in z.namelist() if n and not n.endswith('/')]
+            roots = {n.split('/',1)[0] for n in normalized}
+            if roots != {expected_id}:
+                errors.append(f'{path.name} malformed root layout: {sorted(roots)}')
+            if len(normalized) != len(set(normalized)):
+                errors.append(f'{path.name} contains duplicate normalized paths')
             matched = False
             for name in addon_xmls:
                 try:
