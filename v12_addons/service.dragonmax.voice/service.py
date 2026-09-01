@@ -24,6 +24,8 @@ HOST = '0.0.0.0'
 PORT = 8765
 CORE_PREFIXES = ('xbmc.', 'kodi.')
 PORTAL = 'plugin://plugin.program.dragonmaxportal/'
+STARTUP_THEME = 'special://home/audio/startup_theme.wav'
+STARTUP_AUDIO_PROPERTY = 'DragonMax.StartupAudioSession'
 
 REALMS = {
     'dragon order': 'dragon_order',
@@ -162,6 +164,28 @@ def active_skin_is(skin):
         return False
 
 
+def play_startup_theme_once():
+    """Play the packaged splash theme once for this Kodi process.
+
+    The build owns the WAV under special://home/audio.  A global window property
+    resets with Kodi, so this runs on every real Kodi launch but never repeats
+    from the service's health loop or a Home-window refresh.
+    """
+    session = str(os.getpid())
+    window = xbmcgui.Window(10000)
+    if window.getProperty(STARTUP_AUDIO_PROPERTY) == session:
+        return False
+    if not active_skin_is('skin.auramod'):
+        return False
+    if not xbmcvfs.exists(STARTUP_THEME):
+        xbmc.log('[DragonVoice] startup theme is missing: '+STARTUP_THEME, xbmc.LOGERROR)
+        return False
+    xbmc.executebuiltin('PlayMedia('+STARTUP_THEME+')')
+    window.setProperty(STARTUP_AUDIO_PROPERTY, session)
+    xbmc.log('[DragonVoice] played DragonMax startup theme for Kodi process '+session, xbmc.LOGINFO)
+    return True
+
+
 def activate_pending_skin():
     if not xbmcvfs.exists(PENDING_SKIN_FILE):
         return False
@@ -181,6 +205,7 @@ def activate_pending_skin():
                 xbmc.executebuiltin('Skin.SetString(DragonMaxRealmName,Dragon Order)')
                 xbmc.executebuiltin('ActivateWindow(Home)')
                 xbmc.sleep(300)
+                play_startup_theme_once()
                 try:
                     xbmcvfs.delete(PENDING_SKIN_FILE)
                 except Exception:
@@ -352,9 +377,11 @@ def main():
             xbmc.sleep(2500 if attempt == 0 else 5000)
             if activate_pending_skin(): activated = True; break
             xbmc.executebuiltin('UpdateLocalAddons')
+    play_startup_theme_once()
     notify('DragonMax activated' if activated else 'Dragon Voice memory and self-repair ready')
     while not monitor.abortRequested():
         if xbmcvfs.exists(PENDING_SKIN_FILE): activate_pending_skin()
+        play_startup_theme_once()
         if monitor.waitForAbort(5): break
     if server:
         server.shutdown(); server.server_close()

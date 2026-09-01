@@ -114,7 +114,7 @@ def audit_portal(z,members,addons,errors):
     service=z.read(members[service_rel]).decode('utf-8',errors='ignore') if service_rel in members else ''
     try: compile(service,service_rel,'exec')
     except Exception as exc: errors.append('Dragon Voice Python invalid: '+str(exc))
-    for token in ('plugin.program.dragonmaxportal','required_skin_dependencies','ActivateWindow(Home)','Skin.SetString(DragonMaxRealm,dragon_order)'):
+    for token in ('plugin.program.dragonmaxportal','required_skin_dependencies','ActivateWindow(Home)','Skin.SetString(DragonMaxRealm,dragon_order)','play_startup_theme_once','startup_theme.wav','DragonMax.StartupAudioSession','PlayMedia('):
         if token not in service: errors.append('Dragon Voice activation wiring missing: '+token)
 
 
@@ -135,8 +135,9 @@ def audit_home(z,members,errors):
     if home_rel not in members: errors.append('DragonMax custom AuraMOD Home.xml is missing'); return
     try:
         home_text=z.read(members[home_rel]).decode('utf-8'); home_root=ET.fromstring(home_text)
+        home_text=home_text.replace('&quot;', '"')
     except Exception as exc: errors.append('DragonMax custom Home.xml invalid: '+str(exc)); return
-    for token in ('DRAGONMAX','DragonMaxRealm','DragonMaxRealmName','ENTER THE DRAGON REALMS','TRENDING MOVIES','type="multiimage"','WindowOpen','effect="zoom"','wallpapers/dragon_order/','dragonmax_v92_home_preview.png'):
+    for token in ('DragonMaxPrimaryArtwork','DragonMaxRealm','DragonMaxRealmName','WindowOpen','effect="zoom"','wallpapers/arcane_dominion/','dragonmax_v92_home_preview.png','realm=dragon_order','realm=office_consortium'):
         if token not in home_text: errors.append('DragonMax custom Home.xml missing: '+token)
     for forbidden in ('script.skinshortcuts-template-global-fanart','hero_banners/','realm_crests/','portal_graphics/','RunPlugin(plugin://plugin.program.dragonmaxportal/?action=open'):
         if forbidden in home_text: errors.append('invalid/stock/synthetic Home.xml token survived: '+forbidden)

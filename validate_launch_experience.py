@@ -29,6 +29,8 @@ REQUIRED_ACTIVATION_TOKENS = {
     'pending_skin_activation.json', 'Addons.SetAddonEnabled',
     'enable_skin_stack', 'active_skin_is',
     'Settings.SetSettingValue', 'lookandfeel.skin',
+    'play_startup_theme_once', 'startup_theme.wav',
+    'DragonMax.StartupAudioSession', 'PlayMedia(',
 }
 
 

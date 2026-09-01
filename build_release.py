@@ -200,7 +200,7 @@ def generate_dragonmax_userdata():
     voice = stage / 'addons' / 'service.dragonmax.voice' / 'service.py'
     voice_text = voice.read_text(encoding='utf-8')
     compile(voice_text, 'service.dragonmax.voice/service.py', 'exec')
-    for token in ("payload.get('requires_restart')", "os.getpid()", "Skin.SetString(DragonMaxRealm,dragon_order)", "ActivateWindow(Home)"):
+    for token in ("payload.get('requires_restart')", "os.getpid()", "Skin.SetString(DragonMaxRealm,dragon_order)", "ActivateWindow(Home)", "play_startup_theme_once", "startup_theme.wav", "DragonMax.StartupAudioSession", "PlayMedia("):
         if token not in voice_text: raise RuntimeError('Dragon Voice restart activation gate missing '+token)
 
     menu_path = stage / 'dragonmax' / 'config' / 'menus.json'
@@ -221,8 +221,10 @@ def generate_dragonmax_userdata():
     required = ['Dragon Portal','Continue Watching','Movies','TV Shows','Sports','Anime','Music','Podcasts','Settings']
     if labels != required: raise RuntimeError('DragonMax 4.9 native menu validation failed: '+repr(labels))
 
-    home_text = home.read_text(encoding='utf-8')
-    for token in ('type="multiimage"','WindowOpen','effect="zoom"','target=sports','target=anime','target=music','target=podcasts','wallpapers/dragon_order/','dragonmax_v92_home_preview.png'):
+    # XML text legitimately escapes the double quotes inside Kodi built-ins.
+    # Normalize that representation before validating the command graph.
+    home_text = home.read_text(encoding='utf-8').replace('&quot;', '"')
+    for token in ('DragonMaxPrimaryArtwork','WindowOpen','effect="zoom"','target=sports','target=anime','target=music','target=podcasts','wallpapers/arcane_dominion/','dragonmax_v92_home_preview.png','realm=dragon_order','realm=office_consortium'):
         if token not in home_text: raise RuntimeError('DragonMax 4.9 presentation missing '+token)
     for forbidden in ('hero_banners/','realm_crests/','portal_graphics/','RunPlugin(plugin://plugin.program.dragonmaxportal/?action=open'):
         if forbidden in home_text: raise RuntimeError('Invalid 4.9 presentation path/action survived: '+forbidden)
