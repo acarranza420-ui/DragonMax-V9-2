@@ -108,15 +108,24 @@ jobs:
                       home_key=next((k for k in members if k.endswith('addons/skin.auramod/1080i/Home.xml')),None)
                       portal_key=next((k for k in members if k.endswith('addons/plugin.program.dragonmaxportal/default.py')),None)
                       menu_key=next((k for k in members if k.endswith('addons/skin.auramod/shortcuts/mainmenu.DATA.xml')),None)
+                      service_key=next((k for k in members if k.endswith('addons/service.dragonmax.voice/service.py')),None)
 
                       if not home_key: errors.append('DragonMax Home.xml missing')
                       if not portal_key: errors.append('Dragon Portal router missing')
                       if not menu_key: errors.append('DragonMax native menu missing')
+                      if not service_key: errors.append('Dragon Voice startup service missing')
 
                       if home_key:
                           home=z.read(members[home_key]).decode('utf-8',errors='ignore')
-                          for token in ('type="multiimage"','VisibleChange','WindowOpen','effect="zoom"','target=movies','target=tv','target=sports','target=anime','target=music','target=podcasts','>SPORTS<','>ANIME<','>MUSIC<','>PODCASTS<'):
-                              if token not in home: errors.append('DragonMax interactive Home missing '+token)
+                          for token in ('DragonMaxPrimaryArtwork','dragonmax_v92_home_preview.png','WindowOpen','effect="zoom"','target=continue','target=movies','target=tv','target=sports','target=anime','target=music','target=podcasts','realm=dragon_order','realm=arcane_dominion','realm=crimson_court','realm=temple_guardians','realm=champion_guild','realm=office_consortium','wallpapers/arcane_dominion/'):
+                              if token not in home: errors.append('DragonMax recovered dashboard or remote route missing '+token)
+                          for forbidden in ('hero_banners/','realm_crests/','portal_graphics/','A8000000'):
+                              if forbidden in home: errors.append('DragonMax generic/dead Home layer survived '+forbidden)
+
+                      if service_key:
+                          service=z.read(members[service_key]).decode('utf-8',errors='ignore')
+                          for token in ('play_startup_theme_once','startup_theme.wav','DragonMax.StartupAudioSession','PlayMedia('):
+                              if token not in service: errors.append('DragonMax splash-audio launch hook missing '+token)
 
                       if portal_key:
                           portal=z.read(members[portal_key]).decode('utf-8',errors='ignore')
