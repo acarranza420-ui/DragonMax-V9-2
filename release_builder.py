@@ -11,10 +11,11 @@ OUT = ROOT / 'public'
 STAGE = ROOT / '.v12_stage' / 'DragonMax_V12_Unified_Build_Content'
 RELEASE_VERSION = '4.9.0'
 BUILD = OUT / 'builds' / f'DragonMax_V12_Unified_Build_Content-{RELEASE_VERSION}.zip'
-IDEAL_SIZE = 280 * 1024 * 1024
-SOFT_MAX = 320 * 1024 * 1024
 INSTALL_PROTOCOL = 4
-MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
+# DragonMax ships only required Kodi setup and media.  There is no artificial
+# target or soft limit; the packaged release may grow as needed up to 1 GiB.
+PACKAGE_SIZE_LIMIT_BYTES = 1024 * 1024 * 1024
+MAX_DOWNLOAD_BYTES = PACKAGE_SIZE_LIMIT_BYTES
 RUNTIME_ROOTS = ('addons', 'userdata', 'artwork', 'audio', 'startup', 'dragonmax')
 DEV_DIR_NAMES = {'.git', '.github', '.idea', '.vscode', '__pycache__', 'tests', 'test', 'docs', 'doc'}
 DEV_FILE_SUFFIXES = ('.pyc', '.pyo', '.log', '.tmp', '.old')
@@ -302,8 +303,8 @@ def sha256_file(path):
     return h.hexdigest()
 def make_zip():
     validate_quality(); write_zip(); size=BUILD.stat().st_size; mb=size/1024/1024; print(f'V12 payload size: {mb:.2f} MiB')
-    if size<IDEAL_SIZE:print(f'INFO package is below the ~280 MiB ideal by {(IDEAL_SIZE-size)/1024/1024:.2f} MiB; accepted because quality gates take priority.')
-    elif size>SOFT_MAX:print(f'WARN package is above the 320 MiB soft ceiling at {mb:.2f} MiB; review before launch.')
+    if size>PACKAGE_SIZE_LIMIT_BYTES:raise RuntimeError(f'V12 payload exceeds the 1 GiB package ceiling: {mb:.2f} MiB')
+    print('V12 payload is within the 1 GiB package ceiling; no padding or artificial size target is applied.')
     with zipfile.ZipFile(BUILD) as z:
         bad=z.testzip()
         if bad:raise RuntimeError('Corrupt ZIP member: '+bad)
@@ -313,7 +314,7 @@ def make_zip():
         if failed:raise RuntimeError('ZIP missing required content: '+', '.join(failed))
         if any('/.github/' in '/'+n or '/.git/' in '/'+n for n in names):raise RuntimeError('Development metadata present in release ZIP')
 def publish_repo_files():
-    build={'name':'DragonMax V12 Unified','version':RELEASE_VERSION,'zip':f'builds/DragonMax_V12_Unified_Build_Content-{RELEASE_VERSION}.zip','minimum_size_mb':60,'ready':False,'install_protocol':INSTALL_PROTOCOL,'last_built_size_mb':round(BUILD.stat().st_size/1024/1024,2),'sha256':sha256_file(BUILD),'source_revision':os.environ.get('RENDER_GIT_COMMIT',os.environ.get('GITHUB_SHA','')),'protected_runtime_paths':['userdata/Database','userdata/Thumbnails','userdata/temp','addons/packages','userdata/guisettings.xml'],'payload_policy':'clean runtime image; exact AuraMOD Omega source; full dependency closure; real realm artwork; byte-identical recovered V9.2 reference; no inherited device userdata; no development metadata; fresh/existing-skin/rollback simulations passed','auramod_version':'2.0.4','auramod_commit':AURAMOD_COMMIT,'notes':'Software release candidate for physical Kodi 21 / Fire TV Stick 4K Max validation.'}
+    build={'name':'DragonMax V12 Unified','version':RELEASE_VERSION,'zip':f'builds/DragonMax_V12_Unified_Build_Content-{RELEASE_VERSION}.zip','minimum_size_mb':60,'ready':False,'install_protocol':INSTALL_PROTOCOL,'last_built_size_mb':round(BUILD.stat().st_size/1024/1024,2),'sha256':sha256_file(BUILD),'source_revision':os.environ.get('RENDER_GIT_COMMIT',os.environ.get('GITHUB_SHA','')),'protected_runtime_paths':['userdata/Database','userdata/Thumbnails','userdata/temp','addons/packages','userdata/guisettings.xml'],'payload_policy':'clean runtime image; exact AuraMOD Omega source; full dependency closure; real realm artwork; byte-identical recovered V9.2 reference; no inherited device userdata; no development metadata; fresh/existing-skin/rollback simulations passed; no padding or artificial size target; packaged payload ceiling 1 GiB','auramod_version':'2.0.4','auramod_commit':AURAMOD_COMMIT,'notes':'Software release candidate for physical Kodi 21 / Fire TV Stick 4K Max validation.'}
     (OUT/'build.json').write_text(json.dumps({'schema':1,'builds':[build]},indent=2),encoding='utf-8')
     (OUT/'updates.json').write_text(json.dumps({'repository_version':RELEASE_VERSION,'wizard_version':RELEASE_VERSION,'latest_build':RELEASE_VERSION,'ready':False},indent=2),encoding='utf-8')
     (OUT/'themes.json').write_text(json.dumps({'version':RELEASE_VERSION,'default':'dragon_order','themes':[x[0] for x in REALMS]},indent=2),encoding='utf-8')

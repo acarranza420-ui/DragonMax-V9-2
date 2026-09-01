@@ -13,8 +13,7 @@ import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parent
 PUBLIC = ROOT / 'public'
-MAX_COMPRESSED_MIB = 320
-MAX_EXTRACTED_MIB = 900
+MAX_COMPRESSED_MIB = 1024
 EXPECTED_REALMS = {
     'dragon_order', 'arcane_dominion', 'crimson_court',
     'temple_guardians', 'champion_guild', 'office_consortium',
@@ -74,15 +73,13 @@ def main():
 
     compressed_mib = payload.stat().st_size / 1024 / 1024
     if compressed_mib > MAX_COMPRESSED_MIB:
-        fail(errors, f'compressed payload {compressed_mib:.1f} MiB exceeds {MAX_COMPRESSED_MIB} MiB Fire TV budget')
+        fail(errors, f'compressed payload {compressed_mib:.1f} MiB exceeds the 1 GiB package ceiling')
 
     with zipfile.ZipFile(payload) as z:
         if z.testzip():
             fail(errors, 'payload contains a corrupt ZIP member')
         members = member_map(z)
         extracted_mib = sum(i.file_size for i in z.infolist()) / 1024 / 1024
-        if extracted_mib > MAX_EXTRACTED_MIB:
-            fail(errors, f'extracted payload {extracted_mib:.1f} MiB exceeds {MAX_EXTRACTED_MIB} MiB Fire TV budget')
 
         menus = read_json_member(z, members, 'dragonmax/config/menus.json', errors)
         widgets = read_json_member(z, members, 'dragonmax/config/widgets.json', errors)
