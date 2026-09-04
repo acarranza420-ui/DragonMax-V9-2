@@ -294,8 +294,12 @@ def write_zip():
     BUILD.parent.mkdir(parents=True,exist_ok=True)
     if BUILD.exists():BUILD.unlink()
     with zipfile.ZipFile(BUILD,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
-        for p in STAGE.rglob('*'):
-            if p.is_file():z.write(p,Path(STAGE.name)/p.relative_to(STAGE))
+        for p in sorted(STAGE.rglob('*')):
+            if not p.is_file():continue
+            name=(Path(STAGE.name)/p.relative_to(STAGE)).as_posix()
+            info=zipfile.ZipInfo(name,date_time=(2026,1,1,0,0,0))
+            info.compress_type=zipfile.ZIP_DEFLATED; info.create_system=3; info.external_attr=0o100644<<16
+            z.writestr(info,p.read_bytes(),compress_type=zipfile.ZIP_DEFLATED,compresslevel=6)
 def sha256_file(path):
     h=hashlib.sha256()
     with open(path,'rb') as f:
@@ -314,7 +318,11 @@ def make_zip():
         if failed:raise RuntimeError('ZIP missing required content: '+', '.join(failed))
         if any('/.github/' in '/'+n or '/.git/' in '/'+n for n in names):raise RuntimeError('Development metadata present in release ZIP')
 def publish_repo_files():
-    build={'name':'DragonMax V12 Unified','version':RELEASE_VERSION,'zip':f'builds/DragonMax_V12_Unified_Build_Content-{RELEASE_VERSION}.zip','minimum_size_mb':60,'ready':False,'install_protocol':INSTALL_PROTOCOL,'last_built_size_mb':round(BUILD.stat().st_size/1024/1024,2),'sha256':sha256_file(BUILD),'source_revision':os.environ.get('RENDER_GIT_COMMIT',os.environ.get('GITHUB_SHA','')),'protected_runtime_paths':['userdata/Database','userdata/Thumbnails','userdata/temp','addons/packages','userdata/guisettings.xml'],'payload_policy':'clean runtime image; exact AuraMOD Omega source; full dependency closure; real realm artwork; byte-identical recovered V9.2 reference; no inherited device userdata; no development metadata; fresh/existing-skin/rollback simulations passed; no padding or artificial size target; packaged payload ceiling 1 GiB','auramod_version':'2.0.4','auramod_commit':AURAMOD_COMMIT,'notes':'Software release candidate for physical Kodi 21 / Fire TV Stick 4K Max validation.'}
+    compressed_size = BUILD.stat().st_size
+    with zipfile.ZipFile(BUILD) as archive:
+        members = archive.infolist()
+        uncompressed_size = sum(member.file_size for member in members)
+    build={'name':'DragonMax V12 Unified','version':RELEASE_VERSION,'zip':f'builds/DragonMax_V12_Unified_Build_Content-{RELEASE_VERSION}.zip','minimum_size_mb':60,'ready':False,'install_protocol':INSTALL_PROTOCOL,'last_built_size_mb':round(compressed_size/1024/1024,2),'compressed_size_bytes':compressed_size,'uncompressed_size_bytes':uncompressed_size,'file_count':len(members),'sha256':sha256_file(BUILD),'source_revision':os.environ.get('RENDER_GIT_COMMIT',os.environ.get('GITHUB_SHA','')),'protected_runtime_paths':['userdata/Database','userdata/Thumbnails','userdata/temp','addons/packages','userdata/guisettings.xml'],'payload_policy':'clean runtime image; exact AuraMOD Omega source; full dependency closure; real realm artwork; byte-identical recovered V9.2 reference; no inherited device userdata; no development metadata; fresh/existing-skin/rollback simulations passed; no padding or artificial size target; packaged payload ceiling 1 GiB','auramod_version':'2.0.4','auramod_commit':AURAMOD_COMMIT,'notes':'Software release candidate for physical Kodi 21 / Fire TV Stick 4K Max validation.'}
     (OUT/'build.json').write_text(json.dumps({'schema':1,'builds':[build]},indent=2),encoding='utf-8')
     (OUT/'updates.json').write_text(json.dumps({'repository_version':RELEASE_VERSION,'wizard_version':RELEASE_VERSION,'latest_build':RELEASE_VERSION,'ready':False},indent=2),encoding='utf-8')
     (OUT/'themes.json').write_text(json.dumps({'version':RELEASE_VERSION,'default':'dragon_order','themes':[x[0] for x in REALMS]},indent=2),encoding='utf-8')

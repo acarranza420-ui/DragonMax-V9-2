@@ -19,7 +19,7 @@ _FLIGHT_PACK = {
     'script.module.jurialmunkey': 'https://raw.githubusercontent.com/jurialmunkey/repository.jurialmunkey/master/omega/zips/script.module.jurialmunkey/script.module.jurialmunkey-0.2.35.zip',
     'script.module.infotagger': 'https://raw.githubusercontent.com/jurialmunkey/repository.jurialmunkey/master/omega/zips/script.module.infotagger/script.module.infotagger-0.0.8.zip',
     'script.module.requests': 'https://download.kodi.tv/addons/omega/script.module.requests/script.module.requests-2.31.0.zip',
-    'script.image.resource.select': 'https://codeload.github.com/phil65/script.image.resource.select/zip/refs/heads/master',
+    'script.image.resource.select': 'https://download.kodi.tv/addons/omega/script.image.resource.select/script.image.resource.select-3.0.2.zip',
     'resource.images.moviegenreicons.transparent': 'https://download.kodi.tv/addons/matrix/resource.images.moviegenreicons.transparent/resource.images.moviegenreicons.transparent-0.0.6.zip',
     'resource.images.studios.coloured': 'https://download.kodi.tv/addons/omega/resource.images.studios.coloured/resource.images.studios.coloured-0.0.24.zip',
     'resource.images.studios.white': 'https://download.kodi.tv/addons/omega/resource.images.studios.white/resource.images.studios.white-0.0.34.zip',
@@ -159,31 +159,17 @@ if _wait_old not in _r.DEFAULT: raise RuntimeError('DragonMax dependency wait in
 _r.DEFAULT=_r.DEFAULT.replace(_wait_old,_wait_new,1)
 _FINALIZER=r'''
 def finalize_addons():
-    xbmc.executebuiltin('UpdateLocalAddons'); xbmc.sleep(1500)
-    xbmc.executebuiltin('EnableAddon(service.dragonmax.voice)'); xbmc.executebuiltin('EnableAddon(plugin.program.dragonmaxportal)'); xbmc.executebuiltin('EnableAddon(skin.auramod)')
-    shortcuts=xbmcvfs.translatePath('special://profile/addon_data/script.skinshortcuts/')
-    try:
-        if os.path.isdir(shortcuts):
-            for name in os.listdir(shortcuts):
-                if name.startswith('skin.auramod'):
-                    path=os.path.join(shortcuts,name)
-                    if os.path.isfile(path) or os.path.islink(path): os.remove(path)
-                    elif os.path.isdir(path): shutil.rmtree(path,ignore_errors=True)
-    except Exception as exc: log('AuraMOD Skin Shortcuts cache reset warning: '+str(exc),xbmc.LOGWARNING)
     xbmc.executebuiltin('Skin.SetString(DragonMaxRealm,dragon_order)'); xbmc.executebuiltin('Skin.SetString(DragonMaxRealmName,Dragon Order)')
-    profile=xbmcvfs.translatePath('special://profile/addon_data/service.dragonmax.voice/'); os.makedirs(profile,exist_ok=True)
-    marker=os.path.join(profile,'pending_skin_activation.json')
-    with open(marker,'w',encoding='utf-8') as f: json.dump({'skin':'skin.auramod','wizard_version':VERSION,'rebuild_menu':True,'presentation':'dragonmax-4.9'},f)
 '''
 if '\ndef finalize_addons():' not in _r.DEFAULT: _r.DEFAULT=_r.DEFAULT.replace('\ndef main():',_FINALIZER+'\ndef main():',1)
-_old="preflight(home,fs); o,c=backup(home,fs,br,p); c.extend(bootstrap_created); apply(home,fs,p); pu(p,100,'Installation complete'); p.close();"
-_new="preflight(home,fs); o,c=backup(home,fs,br,p); c.extend(bootstrap_created); apply(home,fs,p); finalize_addons(); pu(p,100,'Installation complete'); p.close();"
+_old="o,c=backup(home,fs,br,p,(marker,)); apply(home,fs,p); bootstrap_dependencies(root,home,p); pu(p,100,'Installation complete'); p.close();"
+_new="o,c=backup(home,fs,br,p,(marker,)); apply(home,fs,p); bootstrap_dependencies(root,home,p); finalize_addons(); pu(p,100,'Installation complete'); p.close();"
 if _old not in _r.DEFAULT: raise RuntimeError('DragonMax finalizer injection point not found')
 _r.DEFAULT=_r.DEFAULT.replace(_old,_new,1)
 _original_gates=_r.gates
 def gates(source):
     _original_gates(source)
-    required=('finalize_addons','EnableAddon(service.dragonmax.voice)','EnableAddon(plugin.program.dragonmaxportal)','EnableAddon(skin.auramod)','pending_skin_activation.json','dependency retry','mainmenu.DATA.xml','1080i/Home.xml','DragonMaxRealm','presentation')
+    required=('finalize_addons','dependency retry','mainmenu.DATA.xml','1080i/Home.xml','DragonMaxRealm')
     for token in required:
         if token not in source: raise RuntimeError('Installer finalization/bootstrap gate missing '+token)
 _r.gates=gates

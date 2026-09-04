@@ -29,7 +29,7 @@ def patch_wizard(default):
     )
     default = default.replace(
         "OWNED=('addons/service.dragonmax.voice/','userdata/addon_data/service.dragonmax.voice/','dragonmax/','artwork/','audio/','startup/')",
-        "OWNED=('addons/service.dragonmax.voice/','userdata/addon_data/service.dragonmax.voice/','dragonmax/','artwork/','audio/','startup/','media/')"
+        "OWNED=('addons/service.dragonmax.voice/','addons/plugin.program.dragonmaxportal/','userdata/addon_data/service.dragonmax.voice/','dragonmax/','artwork/','audio/','startup/','media/')"
     )
     marker = "def required_skin_dependencies(root):\n"
     helper = r'''def rpc(method,params=None):
@@ -37,35 +37,39 @@ def patch_wizard(default):
  if params is not None: request['params']=params
  try:return json.loads(xbmc.executeJSONRPC(json.dumps(request)))
  except Exception:return {}
+def addon_enabled(aid):
+ result=rpc('Addons.GetAddonDetails',{'addonid':aid,'properties':['enabled']})
+ try:return bool(result['result']['addon']['enabled'])
+ except Exception:return False
 def enable_runtime_addon(aid):
  result=rpc('Addons.SetAddonEnabled',{'addonid':aid,'enabled':True})
- if result.get('result') in ('OK',True): return True
+ if result.get('result') in ('OK',True) and addon_enabled(aid): return True
  xbmc.executebuiltin('EnableAddon('+aid+')'); xbmc.sleep(300)
- try:return xbmcaddon.Addon(aid) is not None
- except Exception:return False
+ return addon_enabled(aid)
 def finalize_dragonmax(home,root,p):
  pu(p,98,'Activating DragonMax interface')
  pending=os.path.join(home,'userdata','addon_data','service.dragonmax.voice','pending_skin_activation.json')
  os.makedirs(os.path.dirname(pending),exist_ok=True)
  with open(pending,'w',encoding='utf-8') as f: json.dump({'skin':'skin.auramod','requested_by':'dragonmax-4.9-installer','installer_pid':os.getpid(),'requires_restart':True,'show_startup_splash':True,'target_window':'home'},f)
  xbmc.executebuiltin('UpdateLocalAddons'); xbmc.sleep(1800)
- for dep in required_skin_dependencies(root): enable_runtime_addon(dep)
- enable_runtime_addon('service.dragonmax.voice')
- enable_runtime_addon('plugin.program.dragonmaxportal')
- if not enable_runtime_addon('skin.auramod'): raise RuntimeError('AuraMOD could not be enabled after installation')
+ deferred=[dep for dep in required_skin_dependencies(root) if not enable_runtime_addon(dep)]
+ required=[aid for aid in ('service.dragonmax.voice','plugin.program.dragonmaxportal') if not enable_runtime_addon(aid)]
+ if required: raise RuntimeError('Required DragonMax addons could not be enabled: '+', '.join(required))
+ if not enable_runtime_addon('skin.auramod'): deferred.append('skin.auramod')
+ if deferred: log('Addon activation deferred until Kodi restarts: '+', '.join(deferred),xbmc.LOGWARNING)
  xbmc.log('[DragonMaxWizard] DragonMax skin activation deferred until Kodi restarts',xbmc.LOGINFO)
 '''
     if marker not in default:
         raise RuntimeError('Wizard dependency helper injection point not found')
     if 'def finalize_dragonmax(' not in default:
         default = default.replace(marker, helper + marker, 1)
-    old = "apply(home,fs,p); finalize_addons(); pu(p,100,'Installation complete')"
-    new = "apply(home,fs,p); finalize_addons(); finalize_dragonmax(home,root,p); pu(p,100,'Installation complete')"
+    old = "apply(home,fs,p); bootstrap_dependencies(root,home,p); finalize_addons(); pu(p,100,'Installation complete')"
+    new = "apply(home,fs,p); bootstrap_dependencies(root,home,p); finalize_addons(); finalize_dragonmax(home,root,p); pu(p,100,'Installation complete')"
     if old not in default:
         raise RuntimeError('Wizard activation sequence injection point not found')
     default = default.replace(old, new, 1)
     compile(default, 'dragonmaxwizard-default.py', 'exec')
-    for token in ('def finalize_dragonmax(', "enable_runtime_addon('plugin.program.dragonmaxportal')", "installer_pid", "requires_restart"):
+    for token in ('def addon_enabled(', 'def finalize_dragonmax(', "'plugin.program.dragonmaxportal'", "installer_pid", "requires_restart"):
         if token not in default:
             raise RuntimeError('Wizard activation gate missing '+token)
     return default

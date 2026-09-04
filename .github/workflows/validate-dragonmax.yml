@@ -93,7 +93,11 @@ jobs:
                   with zipfile.ZipFile(payload) as z:
                       bad=z.testzip()
                       if bad: errors.append(f'corrupt payload member: {bad}')
-                      names=z.namelist()
+                      infos=z.infolist()
+                      names=[info.filename for info in infos]
+                      if int(build.get('compressed_size_bytes',-1)) != payload.stat().st_size: errors.append('exact compressed payload size missing or incorrect')
+                      if int(build.get('uncompressed_size_bytes',-1)) != sum(info.file_size for info in infos): errors.append('exact expanded payload size missing or incorrect')
+                      if int(build.get('file_count',-1)) != len(infos): errors.append('exact payload file count missing or incorrect')
                       normalized=['/'+n.replace('\\','/').strip('/') for n in names]
                       for n in normalized:
                           parts=[p for p in n.split('/') if p]
@@ -180,3 +184,6 @@ jobs:
 
       - name: Validate resilience, upgrade preservation, and recovery
         run: python3 validate_resilience.py
+
+      - name: Exercise generated installer transaction and trust boundaries
+        run: python3 validate_installer_runtime.py
