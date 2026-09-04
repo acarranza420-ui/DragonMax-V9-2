@@ -1,0 +1,189 @@
+name: Validate DragonMax Launch Candidate
+
+on:
+  push:
+    branches: [main, dragonmax-stability-rc]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build the exact release payload and installer
+        run: python3 build_v12.py
+
+      - name: Reject stale release sources and Render-only hooks
+        run: |
+          if grep -R -n -E '4\.5\.0|4\.7\.0|4\.8\.0|repo_release_v45|repo_release_v48|repo_release_v49|sitecustomize' \
+            --exclude-dir=.git --exclude-dir=public --exclude-dir=.v12_stage --exclude-dir=__pycache__ --exclude='*.zip' --exclude='validate-dragonmax.yml' .; then
+            echo 'Stale release source or Render-only hook found.' >&2
+            exit 1
+          fi
+
+      - name: Validate generated public distribution
+        run: |
+          python - <<'PY'
+          import hashlib, json, pathlib, sys, xml.etree.ElementTree as ET, zipfile
+
+          root = pathlib.Path('public')
+          errors=[]
+          required_payload_addons = {
+              'skin.auramod','service.dragonmax.voice','plugin.program.dragonmaxportal',
+              'script.skin.helper.service','script.skin.helper.widgets','script.skinshortcuts',
+              'script.module.unidecode','script.module.simpleeval','plugin.program.autocompletion',
+              'plugin.video.themoviedb.helper','script.module.metadatautils','script.module.thetvdb',
+              'script.module.musicbrainz','script.module.jurialmunkey','script.module.infotagger',
+              'script.module.requests','script.image.resource.select','resource.images.moviegenreicons.transparent',
+              'resource.images.studios.coloured','resource.images.studios.white','repository.auramod.aio',
+              'repository.jurialmunkey','repository.marcelveldt','script.colorbox',
+          }
+          forbidden_parts={'.git','.github','.idea','.vscode','__pycache__','tests','test','docs','doc'}
+          forbidden_suffixes={'.pyc','.pyo','.log','.tmp','.old'}
+
+          try:
+              tree=ET.parse(root/'addons.xml')
+              versions={a.attrib.get('id'):a.attrib.get('version') for a in tree.getroot().findall('addon')}
+          except Exception as exc:
+              errors.append(f'generated addons.xml invalid: {exc}')
+              versions={}
+
+          try:
+              actual=hashlib.md5((root/'addons.xml').read_bytes()).hexdigest()
+              expected=(root/'addons.xml.md5').read_text().strip()
+              if actual != expected: errors.append(f'generated addons.xml.md5 mismatch: {expected} != {actual}')
+          except Exception as exc: errors.append(f'generated repository checksum failed: {exc}')
+
+          try:
+              build_doc=json.loads((root/'build.json').read_text())
+              build=build_doc['builds'][0]
+          except Exception as exc:
+              errors.append(f'generated build.json invalid: {exc}')
+              build={}
+
+          version=str(build.get('version',''))
+          if version != '4.9.0': errors.append(f'unexpected release version: {version!r}')
+          if versions.get('repository.dragonmax') != version: errors.append(f'repository version {versions.get("repository.dragonmax")} != build {version}')
+          if versions.get('plugin.program.dragonmaxwizard') != version: errors.append(f'wizard version {versions.get("plugin.program.dragonmaxwizard")} != build {version}')
+          if int(build.get('install_protocol',0)) < 4: errors.append('generated build does not use install protocol 4+')
+
+          for doc in ('updates.json','themes.json','realms.json'):
+              try:
+                  metadata=json.loads((root/doc).read_text())
+                  if str(metadata.get('version', metadata.get('latest_build', ''))) != version:
+                      errors.append(f'{doc} release version mismatch')
+              except Exception as exc: errors.append(f'{doc} invalid: {exc}')
+
+          payload=root/build.get('zip','')
+          if not payload.is_file():
+              errors.append(f'payload missing: {payload}')
+          else:
+              minimum=int(build.get('minimum_size_mb',60))*1024*1024
+              if payload.stat().st_size < minimum: errors.append(f'payload undersized: {payload.stat().st_size}')
+              if payload.stat().st_size > 1024*1024*1024: errors.append(f'payload exceeds 1 GiB package ceiling: {payload.stat().st_size}')
+              sha=hashlib.sha256(payload.read_bytes()).hexdigest()
+              if sha != build.get('sha256'): errors.append('payload SHA-256 mismatch with generated build.json')
+              try:
+                  with zipfile.ZipFile(payload) as z:
+                      bad=z.testzip()
+                      if bad: errors.append(f'corrupt payload member: {bad}')
+                      infos=z.infolist()
+                      names=[info.filename for info in infos]
+                      if int(build.get('compressed_size_bytes',-1)) != payload.stat().st_size: errors.append('exact compressed payload size missing or incorrect')
+                      if int(build.get('uncompressed_size_bytes',-1)) != sum(info.file_size for info in infos): errors.append('exact expanded payload size missing or incorrect')
+                      if int(build.get('file_count',-1)) != len(infos): errors.append('exact payload file count missing or incorrect')
+                      normalized=['/'+n.replace('\\','/').strip('/') for n in names]
+                      for n in normalized:
+                          parts=[p for p in n.split('/') if p]
+                          if any(p.lower() in forbidden_parts for p in parts): errors.append(f'development debris present: {n}')
+                          if pathlib.PurePosixPath(n).suffix.lower() in forbidden_suffixes: errors.append(f'development file present: {n}')
+                          if '/userdata/Database/' in n or '/userdata/Thumbnails/' in n or '/addons/packages/' in n: errors.append(f'protected runtime content present: {n}')
+
+                      for aid in sorted(required_payload_addons):
+                          token=f'/addons/{aid}/addon.xml'
+                          if not any(token in n for n in normalized): errors.append(f'required launch dependency missing from payload: {aid}')
+
+                      members={n.replace('\\','/').strip('/'):n for n in names}
+                      home_key=next((k for k in members if k.endswith('addons/skin.auramod/1080i/Home.xml')),None)
+                      portal_key=next((k for k in members if k.endswith('addons/plugin.program.dragonmaxportal/default.py')),None)
+                      menu_key=next((k for k in members if k.endswith('addons/skin.auramod/shortcuts/mainmenu.DATA.xml')),None)
+                      service_key=next((k for k in members if k.endswith('addons/service.dragonmax.voice/service.py')),None)
+
+                      if not home_key: errors.append('DragonMax Home.xml missing')
+                      if not portal_key: errors.append('Dragon Portal router missing')
+                      if not menu_key: errors.append('DragonMax native menu missing')
+                      if not service_key: errors.append('Dragon Voice startup service missing')
+
+                      if home_key:
+                          home=z.read(members[home_key]).decode('utf-8',errors='ignore')
+                          for token in ('DragonMaxPrimaryArtwork','dragonmax_v92_home_preview.png','WindowOpen','effect="zoom"','target=continue','target=movies','target=tv','target=sports','target=anime','target=music','target=podcasts','realm=dragon_order','realm=arcane_dominion','realm=crimson_court','realm=temple_guardians','realm=champion_guild','realm=office_consortium','wallpapers/arcane_dominion/'):
+                              if token not in home: errors.append('DragonMax recovered dashboard or remote route missing '+token)
+                          for forbidden in ('hero_banners/','realm_crests/','portal_graphics/','A8000000'):
+                              if forbidden in home: errors.append('DragonMax generic/dead Home layer survived '+forbidden)
+
+                      if service_key:
+                          service=z.read(members[service_key]).decode('utf-8',errors='ignore')
+                          for token in ('play_startup_theme_once','startup_theme.wav','DragonMax.StartupAudioSession','PlayMedia('):
+                              if token not in service: errors.append('DragonMax splash-audio launch hook missing '+token)
+
+                      if portal_key:
+                          portal=z.read(members[portal_key]).decode('utf-8',errors='ignore')
+                          for token in ('MEDIA_SECTIONS','def build_section','Browse ','Add-ons Source','video_addons','audio_addons',"'movies'", "'tv'", "'sports'", "'anime'", "'music'", "'podcasts'"):
+                              if token not in portal: errors.append('Dragon Portal section/add-on routing missing '+token)
+                          for label in ('Movies','TV Shows','Sports','Anime','Music','Podcasts'):
+                              if label not in portal: errors.append('Dragon Portal media section missing '+label)
+
+                      if menu_key:
+                          menu=z.read(members[menu_key]).decode('utf-8',errors='ignore')
+                          for label in ('Movies','TV Shows','Sports','Anime','Music','Podcasts'):
+                              if f'<label>{label}</label>' not in menu: errors.append('DragonMax native menu missing '+label)
+
+                      if not any('/dragonmax/install_manifest.json' in n for n in normalized): errors.append('install manifest missing from payload')
+              except Exception as exc: errors.append(f'payload ZIP validation failed: {exc}')
+
+          for addon_id in ('repository.dragonmax','plugin.program.dragonmaxwizard'):
+              zpath=root/f'{addon_id}-{version}.zip'
+              if not zpath.is_file(): errors.append(f'installer artifact missing: {zpath}')
+              else:
+                  try:
+                      with zipfile.ZipFile(zpath) as z:
+                          bad=z.testzip()
+                          if bad: errors.append(f'{zpath.name} corrupt member: {bad}')
+                          normalized=[n.replace('\\','/').strip('/') for n in z.namelist() if n and not n.endswith('/')]
+                          roots={n.split('/',1)[0] for n in normalized}
+                          if roots != {addon_id}: errors.append(f'{zpath.name} malformed root layout: {sorted(roots)}')
+                          if f'{addon_id}/addon.xml' not in normalized: errors.append(f'{zpath.name} missing root addon.xml')
+                          if len(normalized) != len(set(normalized)): errors.append(f'{zpath.name} has duplicate normalized paths')
+                  except Exception as exc: errors.append(f'{zpath.name} invalid: {exc}')
+
+          versioned_root_zips=sorted(p.name for p in root.glob('*.zip'))
+          expected_root_zips=sorted([f'repository.dragonmax-{version}.zip',f'plugin.program.dragonmaxwizard-{version}.zip'])
+          if versioned_root_zips != expected_root_zips: errors.append(f'unexpected root installer artifacts: {versioned_root_zips}')
+
+          if build.get('ready'): errors.append('CI must not publish ready=true before a real Fire TV validation pass')
+          if errors:
+              print('\n'.join('ERROR: '+e for e in errors))
+              sys.exit(1)
+          print('DragonMax 4.9 animated media hub with per-section add-on sources passed expanded Omega validation.')
+          PY
+
+      - name: Run comprehensive release audit
+        run: python3 validate_release_audit.py
+
+      - name: Require complete physical launch dependency closure
+        run: python3 validate_dependency_closure.py
+
+      - name: Simulate launch experience and enforce the 1 GiB package ceiling
+        run: python3 validate_launch_experience.py
+
+      - name: Validate resilience, upgrade preservation, and recovery
+        run: python3 validate_resilience.py
+
+      - name: Exercise generated installer transaction and trust boundaries
+        run: python3 validate_installer_runtime.py

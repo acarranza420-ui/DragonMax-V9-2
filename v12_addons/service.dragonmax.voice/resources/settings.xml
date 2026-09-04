@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<settings version="1">
+  <section id="service.dragonmax.voice">
+    <category id="general" label="Dragon Voice">
+      <group id="1" label="Bridge">
+        <setting id="bridge_enabled" type="boolean" label="Enable Dragon Voice bridge" default="true"/>
+        <setting id="bridge_port" type="integer" label="Bridge port" default="8765"/>
+      </group>
+      <group id="2" label="AI">
+        <setting id="external_ai_enabled" type="boolean" label="Allow optional external AI fallback" default="false"/>
+        <setting id="external_ai_endpoint" type="string" label="External AI endpoint" default=""/>
+      </group>
+      <group id="3" label="Safety">
+        <setting id="confirm_destructive" type="boolean" label="Require confirmation for destructive commands" default="true"/>
+      </group>
+    </category>
+  </section>
+</settings>
